@@ -449,6 +449,25 @@ class Session:
                    "spoken": f"{result['problem']} {result['fix']}".strip()})
         return {"ok": False, **{k: result[k] for k in ("problem", "fix")}}
 
+    def voice_token(self) -> dict | None:
+        """A listen-only pass to the robot's LiveKit room, for the page to play its voice. Only with --voice livekit,
+        and only to this computer's own page (the same local-only check as every other route)."""
+        if getattr(self.args, "voice", "none") != "livekit":
+            return None
+        import os
+        import secrets
+
+        from dreamchess.livekit_voice import DEFAULT_ROOM, load_env
+        from livekit import api
+
+        load_env()
+        room = getattr(self.args, "voice_room", None) or os.environ.get("CHESS_ROOM", DEFAULT_ROOM)
+        token = (api.AccessToken(os.environ["LIVEKIT_API_KEY"], os.environ["LIVEKIT_API_SECRET"])
+                 .with_identity(f"page-{secrets.token_hex(3)}").with_name("Dream Chess page")
+                 .with_grants(api.VideoGrants(room_join=True, room=room, can_publish=False, can_subscribe=True))
+                 .to_jwt())
+        return {"url": os.environ["LIVEKIT_URL"], "token": token, "room": room}
+
     def brain(self) -> dict:
         """Dream-1 at work: what the agent last asked it, plus the station's own status on the real robot."""
         with self.lock:
@@ -486,6 +505,7 @@ class Session:
             "mode": "simulation" if self.args.sim else "live robot",
             "checkpoint": self.model(),
             "auto_opponent": bool(getattr(self.args, "auto_opponent", False)),
+            "voice": getattr(self.args, "voice", "none"),
             "webcam": self.webcam.status() if self.webcam is not None else None,
         }
 
@@ -523,6 +543,14 @@ def make_server(session: Session, port: int) -> ThreadingHTTPServer:
                 self._json(session.vision())
             elif path == "/brain":
                 self._json(session.brain())
+            elif path == "/voice/token":
+                try:
+                    found = session.voice_token()
+                except (ImportError, KeyError) as err:
+                    return self._send(503, f"the voice isn't set up here: {err}".encode(), "text/plain")
+                if found is None:
+                    return self._send(404, b"the voice is off: start the app with --voice livekit", "text/plain")
+                self._json(found)
             elif (found := re.fullmatch(r"/camera/(\w+)\.jpg", path)):
                 image = session.camera(found.group(1), "grid=1" in query)
                 if image is None:

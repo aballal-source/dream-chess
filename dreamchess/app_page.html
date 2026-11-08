@@ -172,6 +172,21 @@ button, input { font: inherit; color: inherit; }
 
 /* Brain: Dream-1 via DreamAPI. */
 .brain-card { position: relative; overflow: hidden; }
+/* The robot's voice: LiveKit, the way Dream-1 is the brain. Bars that move only while it speaks. */
+.voice-card { position: relative; overflow: hidden; padding: 16px 20px; }
+.voice-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: linear-gradient(90deg, var(--brand-2), var(--brand)); }
+.voicehead { display: flex; align-items: center; gap: 12px; }
+.voicehead h2 { font-size: 15px; }
+.wave { display: flex; align-items: center; gap: 3px; height: 32px; width: 46px; flex: none; }
+.wave i { flex: 1; height: 6px; border-radius: 3px; background: var(--brand); opacity: .45; transition: height .08s linear, opacity .2s; }
+.voice-card.speaking .wave i { opacity: 1; }
+.voice-card.speaking.estimated .wave i { animation: talk .9s ease-in-out infinite; }
+.voice-card.speaking.estimated .wave i:nth-child(2) { animation-delay: -.7s; } .voice-card.speaking.estimated .wave i:nth-child(3) { animation-delay: -.3s; }
+.voice-card.speaking.estimated .wave i:nth-child(4) { animation-delay: -.5s; } .voice-card.speaking.estimated .wave i:nth-child(5) { animation-delay: -.15s; }
+@keyframes talk { 0%, 100% { height: 6px; } 50% { height: 28px; } }
+.voiceline { margin-top: 10px; font: 500 14px/1.4 var(--display); }
+.voiceline.none { color: var(--ink-3); font-weight: 400; }
+.voice-card .sub { margin: 2px 0 0; }
 .brain-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: linear-gradient(90deg, var(--brand), var(--brand-2)); }
 .brainhead { display: flex; gap: 12px; align-items: center; }
 .brainhead .logo { width: 40px; height: 40px; border-radius: 12px; }
@@ -390,6 +405,16 @@ button, input { font: inherit; color: inherit; }
           at 20 Hz. The agent decides what to say; Dream-1 decides how to move.</p>
       </section>
 
+      <section class="card voice-card" id="voicecard" aria-labelledby="voice-h" hidden>
+        <div class="voicehead">
+          <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <div style="flex:1;min-width:0"><h2 id="voice-h">The robot's voice</h2>
+            <div class="sub">LiveKit is the voice, the way Dream-1 is the brain: it says each move and reacts to yours.</div></div>
+          <button class="btn tonal" id="listen" type="button" hidden>Listen</button>
+          <span class="status wait" id="voicestate">Silent</span>
+        </div>
+        <div class="voiceline none" id="voiceline" aria-live="polite">Nothing said yet.</div>
+      </section>
       <section class="card" aria-labelledby="steps-h">
         <h2 id="steps-h">This move, step by step</h2>
         <ol class="steps" id="steps"></ol>
@@ -493,6 +518,7 @@ function handle(e) {
   const failureNext = e.type === "agent" && /^(CHECK|HELP)/.test(e.text);
   if (awaitingCheck && !failureNext && !["attempt", "say", "attempt_result", "help"].includes(e.type)) checkPassed();
   if (e.type === "say") log(e.text);
+  if (e.type === "voice") robotSaid(e.text);
   // The supervisor's calls during a move go under How: what it saw, and what it asked Dream-1 next.
   if (e.type === "say" && /SUPERVISE|ending the run/.test(e.text)) {
     const line = e.text.replace(/^\s*SUPERVISE\s*/, "");
@@ -758,6 +784,61 @@ $("cam").addEventListener("click", async ev => {
 });
 $("cal-start").onclick = () => calibrateStep("start", $("cal-start"));
 
+// --- the robot's voice (LiveKit) -----------------------------------------------------------------------------
+// Each line the robot says arrives as a "voice" event. With Listen on, the page joins the robot's LiveKit room as a
+// listener, plays it, and the bars follow the sound; without it, they move for about as long as the line takes to say.
+let speakingUntil = 0, voiceRoom = null, voiceLevel = 0;
+function robotSaid(text) {
+  $("voiceline").textContent = `\u201c${text}\u201d`; $("voiceline").className = "voiceline";
+
+  if (!voiceRoom) speakingUntil = Date.now() + Math.max(1200, text.split(/\s+/).length * 380);
+}
+function drawVoice() {
+  const card = $("voicecard"), bars = card.querySelectorAll(".wave i");
+  const live = voiceRoom && voiceLevel > 0.02, estimated = !voiceRoom && Date.now() < speakingUntil;
+  card.classList.toggle("speaking", live || estimated); card.classList.toggle("estimated", estimated);
+  if (voiceRoom) bars.forEach((b, i) => { b.style.height = `${6 + Math.min(1, voiceLevel * (1.4 + (i % 3) * .5)) * 24}px`; });
+  else bars.forEach(b => { b.style.height = ""; });
+  $("voicestate").textContent = live || estimated ? "Speaking" : voiceRoom ? "Listening" : "Silent";
+  $("voicestate").className = "status " + (live || estimated ? "ok" : "wait");
+  requestAnimationFrame(drawVoice);
+}
+requestAnimationFrame(drawVoice);
+function loadScript(src) {
+  return new Promise((ok, fail) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = fail; document.head.append(s); });
+}
+async function listen() {
+  const b = $("listen");
+  if (voiceRoom) { await voiceRoom.disconnect(); voiceRoom = null; voiceLevel = 0; b.textContent = "Listen"; return; }
+  b.disabled = true; b.textContent = "Connecting...";
+  try {
+    const pass = await (await fetch("/voice/token", { cache: "no-store" })).json();
+    if (!window.LivekitClient) await loadScript("https://cdn.jsdelivr.net/npm/livekit-client@2.5.7/dist/livekit-client.umd.min.js");
+    const LK = window.LivekitClient, room = new LK.Room();
+    room.on(LK.RoomEvent.TrackSubscribed, track => {
+      if (track.kind !== "audio") return;
+      const el = track.attach(); el.hidden = true; document.body.append(el);
+      const ctx = new AudioContext(), analyser = ctx.createAnalyser(); analyser.fftSize = 256;
+      ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack])).connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      (function level() {
+        if (!voiceRoom) return;
+        analyser.getByteTimeDomainData(data);
+        let sum = 0; for (const v of data) sum += ((v - 128) / 128) ** 2;
+        voiceLevel = voiceLevel * 0.6 + Math.sqrt(sum / data.length) * 4 * 0.4;
+        requestAnimationFrame(level);
+      })();
+    });
+    await room.connect(pass.url, pass.token, { autoSubscribe: true });
+    voiceRoom = room; b.textContent = "Stop listening";
+  } catch (err) {
+    $("voiceline").textContent = "Couldn't join the robot's voice room. Is the app running with --voice livekit?";
+    $("voiceline").className = "voiceline none"; b.textContent = "Listen";
+  }
+  b.disabled = false;
+}
+$("listen").onclick = listen;
+
 // --- the robot's brain --------------------------------------------------------------------------------------
 // "dream-1-ft:0b7a43f9-xiangwen-chess" reads as "xiangwen-chess · fine-tune"; the full ID stays in the tooltip.
 const modelName = id => !id ? "" : id.startsWith("dream-1-ft:") ? id.replace(/^dream-1-ft:[0-9a-f]+-/, "") + " · fine-tune"
@@ -963,6 +1044,8 @@ async function tick() {
     if (eyesSetUp !== mode) { eyesSetUp = mode; setupEyes(mode); loadCamera(true); readVision(); }
     $("mode").textContent = sim ? "Simulation" : "Live robot"; $("mode").className = "chip " + (sim ? "sim" : "live");
     $("stoparms").hidden = sim;
+    $("voicecard").hidden = !st.voice || st.voice === "none";
+    $("listen").hidden = st.voice !== "livekit";
     if (!restartArmed && !$("newgame").disabled) $("newgame").textContent = st.running ? "Restart game" : "New game";
     $("s-moves").textContent = moves; $("s-attempts").textContent = attempts; $("s-fixes").textContent = fixes; $("s-help").textContent = rescues;
     if (st.pending && st.pending.kind === "move") setStage("opponent", "active", "Waiting for your move.");
