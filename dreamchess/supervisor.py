@@ -114,7 +114,7 @@ class Supervisor:
             if released == home or released is None:
                 return self._ask(self.current, t, f"it put the wrong piece back down on {home}")
             color, name = self.pieces[home]
-            back = make_step(color, name, released, home, self.robot_color, self.goal)
+            back = make_step(color, name, released, home, self.robot_color, self.goal, fix=True)
             self.then = self.current
             return self._ask(back, t, f"the {name} from {home} landed on {released}: putting it back first")
 
@@ -136,5 +136,5 @@ class Supervisor:
             self.phase = "done"
             return None
         fix = make_step(self.current.color, self.current.piece_name, released, self.current.target,
-                        self.robot_color, self.goal)
+                        self.robot_color, self.goal, fix=True)
         return self._ask(fix, t, f"let go on {released}, not {self.current.target}")

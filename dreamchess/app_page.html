@@ -223,6 +223,13 @@ button, input { font: inherit; color: inherit; }
 .step.failed { background: var(--red-soft); } .step.failed .n { background: var(--red); color: #fff; border-color: transparent; }
 .step.how.active { background: var(--brand-soft); } .step.how.active .n { background: var(--brand); }
 .step .prompt { margin-top: 4px; font: 12px/1.4 var(--mono); color: var(--ink); }
+/* Commands to Dream-1 this move: the last five, one line each, scrolling; click one to read it whole. */
+.cmds { list-style: none; margin: 6px 0 0; padding: 0; max-height: 140px; overflow-y: auto; display: grid; gap: 4px; }
+.cmd { font: 12px/1.35 var(--mono); padding: 4px 8px; border-radius: 6px; background: var(--card-2);
+  border: 1px solid var(--line); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.cmd.open { white-space: normal; }
+.cmd.sup { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 30%, transparent); }
+.cmd .cmdn { color: var(--ink-3); margin-right: 6px; }
 
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .stat { border: 1px solid var(--line); padding: 12px; border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
@@ -427,6 +434,28 @@ function setStage(id, status, html) {
   if (html !== undefined) s.detail.innerHTML = html;
   lightLoop();
 }
+// The How step: a one-line status, then the commands sent to Dream-1 this move (the last five).
+function howHead(text) {
+  let head = stage.how.detail.querySelector(".howhead");
+  if (!head) { head = document.createElement("div"); head.className = "howhead"; stage.how.detail.prepend(head); }
+  head.textContent = text;
+}
+function addCommand(kind, label, text) {
+  let list = stage.how.detail.querySelector(".cmds");
+  if (!list) { list = document.createElement("ol"); list.className = "cmds"; stage.how.detail.append(list); }
+  const li = document.createElement("li"); li.className = "cmd " + kind; li.title = text;
+  const n = document.createElement("span"); n.className = "cmdn"; n.textContent = label;
+  li.append(n, document.createTextNode(text)); li.onclick = () => li.classList.toggle("open");
+  list.append(li);
+  while (list.children.length > 5) list.firstElementChild.remove();
+  list.scrollTop = list.scrollHeight;
+}
+// The squares a prompt names, for the board's highlight: "Column (b), Row (8)" or "square b8".
+function promptSquares(text) {
+  const found = [...text.matchAll(/Column \(([a-h])\), Row \(([1-8])\)/g)].map(m => m[1] + m[2]);
+  const sq = found.length ? found : (text.match(/\b[a-h][1-8]\b/g) || []);
+  return { from: sq[0] || null, to: sq[1] || null };
+}
 function lightLoop() {
   const on = new Set();
   for (const s of Object.values(stage)) if (s.status === "active") on.add(s.node);
@@ -467,7 +496,7 @@ function handle(e) {
   // The supervisor's calls during a move go under How: what it saw, and what it asked Dream-1 next.
   if (e.type === "say" && /SUPERVISE|ending the run/.test(e.text)) {
     const line = e.text.replace(/^\s*SUPERVISE\s*/, "");
-    stage.how.detail.insertAdjacentHTML("beforeend", `<div class="prompt" style="color:var(--brand)">\u21b3 ${esc(line)}</div>`);
+    addCommand("sup", "\u21b3", line);
   }
   if (e.type === "agent") log(e.text);
   if (e.type === "error") { log(e.text, "err"); $("banner").textContent = e.text; $("banner").className = "banner"; $("banner").hidden = false; }
@@ -492,10 +521,10 @@ function handle(e) {
     } else if (kind === "HOW") {
       const m = body.match(/\[(\d+)\/(\d+)\] (.*)/);
       if (m) {
-        const sq = (m[3].match(/\b[a-h][1-8]\b/g) || []);
-        highlight = { from: sq[0] || null, to: sq[1] || null };
-        const fix = +m[1] > 1;
-        setStage("how", "active", `${fix ? "Retry" : "Sent to Dream-1"}, attempt ${m[1]} of ${m[2]}.<div class="prompt">“${esc(m[3])}”</div>`);
+        highlight = promptSquares(m[3]);
+        howHead(`${+m[1] > 1 ? "Retry" : "Sent to Dream-1"}, attempt ${m[1]} of ${m[2]}.`);
+        addCommand("send", `${m[1]}/${m[2]}`, m[3]);
+        setStage("how", "active");
         setStage("check", "", "");
       }
     } else if (kind === "CHECK") {
@@ -515,7 +544,8 @@ function handle(e) {
   }
   if (e.type === "attempt") {
     attempts++;
-    setStage("how", "done", stage.how.detail.innerHTML.replace(/^(Sent to Dream-1|Retry)/, "Done") + "");
+    howHead(`Done${e.seconds != null ? ` in ${e.seconds}s` : ""}.`);
+    setStage("how", "done");
     setStage("check", "active", "Comparing the board with the plan...");
     awaitingCheck = true;
   }

@@ -247,10 +247,10 @@ class Orchestrator:
                     key=lambda sq: (chess.square_distance(chess.parse_square(sq), chess.parse_square(source)), sq),
                 )
                 # The piece that belongs on the target is the one to bring there.
-                return make_step(color, after.get(target, "piece"), source, target, self.robot_color, goal)
+                return make_step(color, after.get(target, "piece"), source, target, self.robot_color, goal, fix=True)
         if extra:  # a stray with nowhere to go, e.g. a capture that wasn't removed
             source, color = sorted(extra.items())[0]
-            return make_step(color, before.get(source, "piece"), source, TRAY, self.robot_color, goal)
+            return make_step(color, before.get(source, "piece"), source, TRAY, self.robot_color, goal, fix=True)
         if first is not None and first.source == TRAY and first.target in missing:
             return first  # the spare queen didn't arrive, so try again
         return None  # a piece vanished from view, likely off the table
