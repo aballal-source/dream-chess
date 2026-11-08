@@ -14,6 +14,7 @@ import chess
 
 from .core import TRAY, Human, Mover, MoverError, Occupancy, OpponentSignal, Perception, Step, color_code, occupancy
 from .engine import Engine
+from .voice import SilentVoice
 from .what import choose_piece
 from .where import choose_destination, make_step, plan_move
 
@@ -82,6 +83,7 @@ class Orchestrator:
         wait_for_opponent: OpponentSignal,
         config: Config | None = None,
         log: Callable[[str], None] = print,
+        voice=None,
     ):
         self.board = board
         self.robot_color = robot_color
@@ -92,6 +94,7 @@ class Orchestrator:
         self.wait_for_opponent = wait_for_opponent
         self.config = config or Config()
         self.log = log
+        self.voice = voice or SilentVoice()  # says each move and reacts; see voice.py
         self.stats = Stats()
 
     def run(self, max_plies: int | None = None) -> str:
@@ -131,6 +134,7 @@ class Orchestrator:
             dest = choose_destination(self.board, self.engine, choice, self.config.margin_cp)
             self.log(f"WHERE {self.board.san(dest.move)} ({dest.cp:+d} cp, risk {dest.risk})")
             move = dest.move
+        self.voice.robot_move_chosen(self.board, move)
 
         # Follow each piece through the steps, so a correction can say "the brown rook", not just "the brown piece":
         # the camera only tells colors apart, but the game knows which piece belongs where.
@@ -145,6 +149,7 @@ class Orchestrator:
 
         self.board.push(move)
         self.stats.moves += 1
+        self.voice.robot_move_done(self.board)
         return move
 
     def _scripted_move(self) -> chess.Move | None:
@@ -171,6 +176,7 @@ class Orchestrator:
             move = infer_opponent_move(self.board, self._observe())
             if move is not None:
                 self.log(f"SEEN  opponent played {self.board.san(move)}")
+                self.voice.opponent_moved(self.board, move)
                 self.board.push(move)
                 return move
         raise GameAborted("camera doesn't match any legal opponent move")
@@ -225,12 +231,14 @@ class Orchestrator:
             step = self._corrective_step(missing, extra, goal, first, names) if can_retry else None
             if step is not None:
                 self.stats.corrections += 1
+                self.voice.fixing()
                 continue
 
             if human_calls >= self.config.max_human_calls:
                 raise GameAborted(f"board still wrong after help: missing={missing} extra={extra}")
             human_calls += 1
             self.stats.human_calls += 1
+            self.voice.asking_help()
             attempts = 0
             self.log(f"HELP  asking a person to fix the board: missing={sorted(missing)} extra={sorted(extra)}")
             self.human.request_fix(f"Please fix the board. Missing: {missing}. Extra: {extra}.", goal)

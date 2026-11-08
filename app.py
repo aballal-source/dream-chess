@@ -594,6 +594,7 @@ def add_game_args(parser: argparse.ArgumentParser) -> None:
                         help="where the top camera's board calibration is saved, so it survives a restart")
     parser.add_argument("--frames", default="~/.dreamlabs/last-run_inputs",
                         help="where the station saves the camera frames it hands Dream-1")
+    run_robot.add_voice_args(parser)
 
 
 def main() -> None:
