@@ -491,7 +491,14 @@ function drawDetected(st, detected) {
 }
 
 // --- the robot's eyes ---------------------------------------------------------------------------------------
-let camView = "grid", camRole = "top", visionKey = null, liveMode = false;
+let camView = "grid", camRole = "top", visionKey = null, liveMode = false, frameAges = {};
+// How old a station frame is: they're only saved while Dream-1 runs a move, so between moves the last one stays up.
+function ageText(s) {
+  if (s == null) return "";
+  if (s < 90) return "live";
+  const m = Math.round(s / 60), h = Math.round(s / 3600);
+  return "from " + (s < 5400 ? `${m} min ago` : s < 172800 ? `${h} h ago` : `${Math.round(s / 86400)} days ago`);
+}
 function segment(options, current, onPick) {
   const seg = $("camseg"); seg.innerHTML = "";
   for (const [value, label] of options) {
@@ -518,7 +525,14 @@ function showFrame(url, tag) {
   pre.src = url;
 }
 function loadCamera(force) {
-  if (liveMode) { showFrame(`/camera/${camRole}.jpg?t=${Date.now()}`, `<span class="live-dot"></span>${camRole.toUpperCase()} · as sent to Dream-1`); return; }
+  if (liveMode) {
+    const age = frameAges[camRole], fresh = age != null && age < 90;
+    showFrame(`/camera/${camRole}.jpg?t=${Date.now()}`, (fresh ? `<span class="live-dot"></span>` : "") +
+      `${camRole.toUpperCase()} · ${fresh ? "as sent to Dream-1" : "last frame sent to Dream-1, " + esc(ageText(age))}`);
+    $("eyes-sub").textContent = fresh ? "The frames the station hands Dream-1, refreshed while the arms move."
+      : "The station saves a frame only while Dream-1 runs a move, so this is the last one. It refreshes on the robot's next attempt.";
+    return;
+  }
   const key = `${lastState.fen}|${JSON.stringify(lastState.physical || {})}`;
   if (!force && key === visionKey) return;
   visionKey = key;
@@ -531,6 +545,7 @@ async function readVision() {
     const v = await (await fetch("/vision", { cache: "no-store" })).json();
     const a = $("agree");
     if (v.source === "person") {
+      frameAges = v.frames || {};
       drawDetected(lastState, v.detected || {});
       a.className = "status ok"; a.textContent = "Confirmed by a person";
       $("agree-why").textContent = "Until the station shares its camera, the person at the board confirms each step.";
@@ -640,7 +655,7 @@ async function tick() {
     if (st.pending && st.pending.kind === "move") setStage("opponent", "active", "Waiting for your move.");
     showQuestion(st.pending, st);
     drawBoard(st); lightLoop();
-    if (!sim) { if (liveTick++ % 4 === 0) { loadCamera(true); readVision(); } }
+    if (!sim) { if (liveTick++ % 4 === 0) { readVision().then(() => loadCamera(true)); } }
     else loadCamera(false);
   } catch (err) {
     $("banner").textContent = "Lost the connection to the app. Is app.py still running?"; $("banner").className = "banner"; $("banner").hidden = false;
