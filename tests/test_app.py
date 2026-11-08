@@ -282,3 +282,20 @@ def test_live_page_shows_the_frames_dream_1_was_handed_and_the_station_status(tm
 def test_brain_says_when_the_station_is_unreachable(tmp_path):
     session = app.Session(args(tmp_path, sim=False, station="http://127.0.0.1:9", frames=str(tmp_path)))
     assert session.brain()["station"] == {"reachable": False}
+
+
+def test_the_page_shows_the_position_to_set_up_before_the_game_starts(tmp_path, station):  # noqa: F811
+    session = app.Session(args(tmp_path, sim=False, station=station.url))
+    session.start()
+    state = wait_for(session, lambda s: s["pending"] and s["pending"]["kind"] == "continue")
+    assert state["setup"] is True
+    assert state["fen"] == chess.Board(BROWN_MATES).fen()
+    assert state["physical"] == {"b8": "b", "g8": "b", "a2": "b", "h1": "w"}
+    session.answer(state["pending"]["id"], "")
+    state = wait_for(session, lambda s: s["pending"] and s["pending"]["kind"] == "confirm")
+    assert state["setup"] is True  # still setting up until the e-stop is confirmed
+    session.answer(state["pending"]["id"], "yes")
+    state = wait_for(session, lambda s: s["pending"] and s["pending"]["kind"] == "move")
+    assert state["setup"] is False
+    session.answer(state["pending"]["id"], "quit")
+    wait_for(session, lambda s: not s["running"])

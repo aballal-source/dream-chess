@@ -132,7 +132,9 @@ button, input { font: inherit; color: inherit; }
 .pc { font-size: clamp(22px, 4.2vw, 46px); line-height: 1; font-family: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2", serif; }
 .pc.w { color: var(--ivory); -webkit-text-stroke: 1.2px #2b2118; text-shadow: 0 2px 2px rgba(0,0,0,.25); }
 .pc.b { color: var(--brown); -webkit-text-stroke: .6px #2b160a; text-shadow: 0 2px 2px rgba(0,0,0,.3); }
-.mini .pc { display: none; }
+.mini .pc { font-size: clamp(13px, 2.1vw, 22px); }
+.mini .pc.unknown { opacity: .85; }
+.setup-tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 12px; font-weight: 600; vertical-align: 2px; }
 .dot { width: 56%; aspect-ratio: 1; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,.35); }
 .dot.w { background: var(--ivory); border: 2px solid #2b2118; } .dot.b { background: var(--brown); border: 2px solid #2b160a; }
 .boardhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -260,8 +262,7 @@ button, input { font: inherit; color: inherit; }
         <div class="legend">
           <span class="status wait" id="agree">Calibrating</span>
           <span id="agree-why" style="font-size:13px"></span>
-          <span><i style="background:var(--ivory);border:1px solid #2b2118"></i>White piece</span>
-          <span><i style="background:var(--brown)"></i>Brown piece</span>
+          <span id="vision-note" style="font-size:12px;color:var(--ink-3)">The camera sees each piece's color; its type comes from the game.</span>
           <span><i style="box-shadow:inset 0 0 0 2px var(--red)"></i>Should be a piece here</span>
           <span><i style="background:color-mix(in srgb,var(--amber) 40%,transparent);box-shadow:inset 0 0 0 2px var(--amber)"></i>Unexpected piece</span>
         </div>
@@ -270,7 +271,7 @@ button, input { font: inherit; color: inherit; }
 
     <!-- The game -->
     <section class="card" aria-labelledby="board-h">
-      <div class="boardhead"><h2 id="board-h">The game</h2>
+      <div class="boardhead"><h2 id="board-h">The game<span class="setup-tag" id="setuptag" hidden>Set up like this</span></h2>
         <span><span class="turn" id="turn"></span> <span class="incheck" id="checkflag"></span></span></div>
       <div class="side"><span>Robot · Brown</span><span id="robotmove"></span></div>
       <div class="board" id="board"></div>
@@ -320,6 +321,7 @@ button, input { font: inherit; color: inherit; }
 
 <script>
 const $ = id => document.getElementById(id);
+let lastState = {};  // the latest /state, read by every panel
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const score = cp => Math.abs(cp) >= 90000 ? (cp > 0 ? "a forced mate" : "being mated") : `${cp >= 0 ? "+" : ""}${(cp / 100).toFixed(2)} pawns`;
 
@@ -350,10 +352,11 @@ function lightLoop() {
   const on = new Set();
   for (const s of Object.values(stage)) if (s.status === "active") on.add(s.node);
   if (on.has("brain")) on.add("arms");
-  if (running) on.add("agent");
+  const settingUp = !!lastState.setup;
+  if (running && !settingUp) on.add("agent");
   document.querySelectorAll(".node").forEach(n => n.classList.toggle("on", on.has(n.dataset.n)));
   const active = STAGES.find(([id]) => stage[id].status === "active");
-  $("loopstate").textContent = active ? `Now: ${active[1]}` : (running ? "Thinking" : "Idle");
+  $("loopstate").textContent = active ? `Now: ${active[1]}` : settingUp ? "Setting up" : running ? "Thinking" : "Idle";
   $("loopstate").className = "status " + (active ? "ok" : "wait");
 }
 // The record step keeps showing the last move recorded until the next one replaces it.
@@ -474,7 +477,8 @@ function drawBoard(st) {
     sq.classList.toggle("pick", picked === name);
     sq.classList.toggle("click", askKind === "move");
   }
-  $("turn").textContent = st.turn ? (st.turn === "white" ? "Your turn" : "Robot's turn") : "";
+  $("setuptag").hidden = !st.setup;
+  $("turn").textContent = st.setup ? "" : st.turn ? (st.turn === "white" ? "Your turn" : "Robot's turn") : "";
   $("checkflag").textContent = st.check ? "Check!" : "";
   $("lastmove").textContent = st.last_move ? `Last move ${st.last_move}` : "";
   $("robotmove").textContent = moving && highlight.from ? `Moving ${highlight.from} → ${highlight.to || "tray"}` : "";
@@ -483,8 +487,12 @@ function drawDetected(st, detected) {
   const pieces = st.fen ? parseFen(st.fen) : {};
   for (const [name, sq] of Object.entries(seenSquares)) {
     sq.innerHTML = ""; const c = detected[name];
-    if (c) { const d = document.createElement("div"); d.className = "dot " + c; sq.append(d); }
     const want = colorOf(pieces[name]);
+    if (c) {
+      // The camera only tells colors apart. Where the color matches the game, it's the game's piece; otherwise a pawn shape.
+      const d = document.createElement("span"), kind = c === want ? pieces[name].toLowerCase() : "p";
+      d.className = "pc " + c + (c === want ? "" : " unknown"); d.textContent = GLYPH[kind]; sq.append(d);
+    }
     sq.classList.toggle("miss", !!st.fen && !!want && c !== want);
     sq.classList.toggle("extra", !!st.fen && !!c && c !== want);
   }
@@ -547,8 +555,9 @@ async function readVision() {
     if (v.source === "person") {
       frameAges = v.frames || {};
       drawDetected(lastState, v.detected || {});
-      a.className = "status ok"; a.textContent = "Confirmed by a person";
-      $("agree-why").textContent = "Until the station shares its camera, the person at the board confirms each step.";
+      a.className = "status ok"; a.textContent = "From your answers";
+      $("agree-why").textContent = "The station's camera isn't connected to the board reader yet, so this board is what you've told the robot: your moves, and whether each of its pieces landed.";
+      $("vision-note").hidden = true;
       return;
     }
     if (v.error) { a.className = "status bad"; a.textContent = "Camera error"; $("agree-why").textContent = v.error; return; }
@@ -606,6 +615,19 @@ function input(placeholder, submitLabel) {
   const b = document.createElement("button"); b.className = "btn primary"; b.type = "button"; b.textContent = submitLabel; b.onclick = () => answer(i.value.trim());
   return [i, b];
 }
+// The game asks in a terminal's words ("press Enter", "type yes"); say it the page's way, with buttons that say what they do.
+function friendly(p) {
+  const t = p.prompt.replace(/\s+/g, " ").trim();
+  if (p.kind === "continue" && /set up/i.test(t)) return ["Set up the real board to match the board above, with brown on the robot's side.", "Click the button once every piece is in place."];
+  if (p.kind === "continue" && /fixed/i.test(t)) return ["Put the pieces back to match the board above.", "The robot couldn't fix this alone. Click the button once the board matches."];
+  if (p.kind === "continue") return [t.replace(/,?\s*(then )?press enter[^.:]*[.:]?/i, "").trim() || "Ready to go on?", ""];
+  if (p.kind === "confirm") return ["Next, the robot's arms will move.", "Keep a hand on the e-stop the whole time the arms move."];
+  if (p.kind === "yesno") return [t.replace(/\s*y\/n:?\s*$/i, "").replace(/\?*$/, "?"), "Look at the real board and answer for what actually happened."];
+  if (p.kind === "where") return ["Where did the piece end up?", "Type its square, or pick one of the options."];
+  if (p.kind === "bumps") return ["Did anything else get knocked out of place?", "If so, type the square it was on, then where it is now, like e4 e3."];
+  if (p.kind === "move") return ["Your move.", "Make it on the real board, then enter it here: type it, or tap a white piece and then its square."];
+  return [t, ""];
+}
 function showQuestion(p, st) {
   if (!p) {
     askId = null; askKind = null; $("ask").classList.remove("on"); $("askrow").innerHTML = ""; $("askhint").textContent = "";
@@ -615,13 +637,16 @@ function showQuestion(p, st) {
   }
   if (p.id === askId) return;
   askId = p.id; askKind = p.kind; picked = null;
-  $("ask").classList.add("on"); $("askq").textContent = p.prompt.replace(/\s+/g, " "); $("askhint").textContent = "";
+  const [question, hint] = friendly(p);
+  $("ask").classList.add("on"); $("askq").textContent = question; $("askhint").textContent = hint;
   const row = $("askrow"); row.innerHTML = "";
-  if (p.kind === "move") { row.append(...input("e4, Nf3 or e2e4", "Play")); row.append(button("Quit", "quit")); $("askhint").textContent = "Make the move on the real board, then type it, or tap a white piece and then its square."; }
-  else if (p.kind === "yesno") { row.append(button("Yes, it landed", "y", "primary"), button("No", "n")); }
-  else if (p.kind === "confirm") { row.append(button("Yes, a hand is on the e-stop", "yes", "danger"), button("Not yet", "no")); }
-  else if (p.kind === "continue") { row.append(button("Done", "", "primary")); }
-  else if (p.kind === "bumps") { row.append(button("Nothing else moved", "", "primary")); row.append(...input("e.g. e4 e3", "Report")); $("askhint").textContent = "Type the square it was on, then where it is now."; }
+  if (p.kind === "move") { row.append(...input("e4, Nf3 or e2e4", "Play move")); row.append(button("End the game", "quit")); }
+  else if (p.kind === "yesno") { row.append(button("Yes, it landed", "y", "primary"), button("No, it didn't", "n")); }
+  else if (p.kind === "confirm") { row.append(button("My hand is on the e-stop: go", "yes", "danger"), button("Not yet", "no")); }
+  else if (p.kind === "continue" && /set up/i.test(p.prompt)) { row.append(button("The board is set up", "", "primary")); }
+  else if (p.kind === "continue" && /fixed/i.test(p.prompt)) { row.append(button("The board is fixed", "", "primary"), button("End the game", "quit")); }
+  else if (p.kind === "continue") { row.append(button("Continue", "", "primary")); }
+  else if (p.kind === "bumps") { row.append(button("Nothing else moved", "", "primary")); row.append(...input("e.g. e4 e3", "Report")); }
   else if (p.kind === "where") { row.append(...input("square, e.g. f5", "Send")); row.append(button("Didn't move", "same"), button("In the tray", "tray"), button("Off the board", "gone")); }
   else { row.append(...input("", "Send")); }
   const box = $("answerbox"); if (box) box.focus({ preventScroll: true });
@@ -637,7 +662,7 @@ $("board").addEventListener("click", ev => {
 $("newgame").onclick = async () => { $("banner").hidden = true; await post("/new"); };
 $("stoparms").onclick = async () => { const r = await post("/stop"); log(r.message || "Stop sent."); };
 
-let lastState = {}, bootId = null, eyesSetUp = null, liveTick = 0;
+let bootId = null, eyesSetUp = null, liveTick = 0;
 async function tick() {
   try {
     const st = await (await fetch(`/state?since=${since}`, { cache: "no-store" })).json();

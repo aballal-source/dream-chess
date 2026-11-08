@@ -169,13 +169,23 @@ class Session:
             if self.running:
                 return False
             self.running, self.quitting, self.summary = True, False, None
-            self.board, self.physical, self.snapshot = None, None, {}
+            self.board, self.physical = None, None
+            self.snapshot = self._starting_snapshot()
             self.game_number += 1
             self.dream.update(state="idle", prompt=None, arm=None, attempt=None, calls=0, last_seconds=None,
                               landed=None)
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
         return True
+
+    def _starting_snapshot(self) -> dict:
+        """The position the game starts from, shown while the person sets up the board (before the game publishes)."""
+        try:
+            start = chess.Board(self.args.fen)
+        except ValueError:
+            return {}  # the game itself reports a bad position
+        return {"fen": start.fen(), "last_move": None, "turn": "white" if start.turn else "brown",
+                "check": start.is_check(), "physical": occupancy(start), "mismatch": [], "setup": True}
 
     def _run(self) -> None:
         try:
@@ -285,6 +295,7 @@ class Session:
             "check": snapshot.get("check", False),
             "physical": snapshot.get("physical", {}),
             "mismatch": snapshot.get("mismatch", []),
+            "setup": snapshot.get("setup", False),
             "mode": "simulation" if self.args.sim else "live robot",
             "checkpoint": self.args.checkpoint or ("simulated robot" if self.args.sim else "station default"),
             "auto_opponent": bool(getattr(self.args, "auto_opponent", False)),
