@@ -1,0 +1,11 @@
+.venv
+.git
+.github
+games
+tests
+docs
+__pycache__
+*.pyc
+.env
+.env.*
+collect_game.py

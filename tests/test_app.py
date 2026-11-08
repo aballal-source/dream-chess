@@ -447,3 +447,33 @@ def test_the_listen_pass_can_only_listen(tmp_path, monkeypatch):
     grants = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["video"]
     assert grants["roomJoin"] and grants["room"] == "dream-chess" and grants["canPublish"] is False
     assert found["url"] == "wss://example.livekit.cloud" and api
+
+
+# --- The public demo site ---
+
+def test_the_public_site_only_ever_runs_the_simulation(tmp_path, station):  # noqa: F811
+    with pytest.raises(ValueError, match="must never reach a real robot"):
+        app.make_server(app.Session(args(tmp_path, sim=False, station=station.url)), 0, public=True)
+
+
+def test_visitors_can_watch_and_restart_but_nothing_else(tmp_path):
+    session = app.Session(args(tmp_path, public=True, auto_opponent=True, max_plies=200))
+    server = app.make_server(session, 0, public=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    try:
+        session.start()
+        page = request(port, "/", f"dream-chess.hf.space:{port}", header=False)  # any visitor's address
+        assert page.status == 200
+        state = json.loads(request(port, "/state", f"dream-chess.hf.space:{port}").read())
+        assert state["public"] is True
+        for path in ("/answer", "/stop", "/new", "/webcam/empty"):
+            with pytest.raises(urllib.error.HTTPError) as err:
+                request(port, path, f"dream-chess.hf.space:{port}", "POST", b"{}")
+            assert err.value.code == 403
+        first = json.loads(request(port, "/restart", f"dream-chess.hf.space:{port}", "POST", b"{}").read())
+        again = json.loads(request(port, "/restart", f"dream-chess.hf.space:{port}", "POST", b"{}").read())
+        assert first["ok"] is True and again["ok"] is False  # one restart per 15 s, for everyone
+    finally:
+        session.shutdown()
+        server.shutdown()

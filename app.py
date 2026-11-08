@@ -3,6 +3,7 @@
     python app.py --sim --auto-opponent      # dummy data: a simulated robot playing a random opponent
     python app.py --sim                      # simulated robot; you play White from the page
     python app.py                            # the real robot, on the NUC (a person at the e-stop)
+    python app.py --public --port 7860       # the public demo site: the simulation only, open to visitors
 
 Open http://127.0.0.1:8800 (on the NUC, from your laptop: ssh -L 8800:127.0.0.1:8800 dream-nuc).
 The game itself is run_robot.play(): this only gives it a page instead of a terminal, so the same code runs both.
@@ -32,6 +33,7 @@ from dreamchess.human_eyes import GameQuit
 PAGE = Path(__file__).parent / "dreamchess" / "app_page.html"
 PACED = ("agent", "attempt", "attempt_result", "opponent_move", "help")
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+PUBLIC_RESTART_EVERY_S = 15.0  # on the public site, one visitor's restart can't keep resetting everyone's game
 
 
 def question_kind(prompt: str) -> str:
@@ -277,6 +279,11 @@ class Session:
 
     def restart(self, wait_s: float = 20.0) -> bool:
         """End the game now (stopping the arms first, on the real robot) and start a fresh one."""
+        if getattr(self.args, "public", False):
+            now = time.monotonic()
+            if now - getattr(self, "_restarted_at", -1e9) < PUBLIC_RESTART_EVERY_S:
+                return False
+            self._restarted_at = now
         if self.running:
             if not self.args.sim:
                 self.stop_robot()
@@ -506,11 +513,16 @@ class Session:
             "checkpoint": self.model(),
             "auto_opponent": bool(getattr(self.args, "auto_opponent", False)),
             "voice": getattr(self.args, "voice", "none"),
+            "public": bool(getattr(self.args, "public", False)),
             "webcam": self.webcam.status() if self.webcam is not None else None,
         }
 
 
-def make_server(session: Session, port: int) -> ThreadingHTTPServer:
+def make_server(session: Session, port: int, public: bool = False) -> ThreadingHTTPServer:
+    """The app's web server. Normally it answers this computer only. `public` is the demo site: open to every visitor,
+    but only ever for a simulation, and visitors can watch and restart, nothing else."""
+    if public and not session.args.sim:
+        raise ValueError("the public site only runs the simulation: it must never reach a real robot")
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code: int, body: bytes, kind: str) -> None:
             self.send_response(code)
@@ -531,7 +543,7 @@ def make_server(session: Session, port: int) -> ThreadingHTTPServer:
             return name in LOCAL_HOSTS
 
         def do_GET(self) -> None:
-            if not self._local():
+            if not public and not self._local():
                 return self._send(403, b"forbidden", "text/plain")
             path, _, query = self.path.partition("?")
             if path == "/":
@@ -562,8 +574,10 @@ def make_server(session: Session, port: int) -> ThreadingHTTPServer:
         def do_POST(self) -> None:
             # Only the app's own page: this computer's address, plus a custom header another site's page can't send
             # without a preflight this server never answers. Otherwise any page could answer the e-stop question.
-            if not self._local() or self.headers.get("X-Dream-Chess") != "1":
+            if not (public or self._local()) or self.headers.get("X-Dream-Chess") != "1":
                 return self._send(403, b"forbidden", "text/plain")
+            if public and self.path != "/restart":  # visitors watch; the only thing they can do is start over
+                return self._send(403, b"the public demo only watches and restarts", "text/plain")
             try:
                 length = min(int(self.headers.get("Content-Length") or 0), 4096)
                 body = json.loads(self.rfile.read(length) or b"{}")
@@ -589,7 +603,7 @@ def make_server(session: Session, port: int) -> ThreadingHTTPServer:
         def log_message(self, *args) -> None:
             pass
 
-    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    return ThreadingHTTPServer(("0.0.0.0" if public else "127.0.0.1", port), Handler)
 
 
 def add_game_args(parser: argparse.ArgumentParser) -> None:
@@ -628,18 +642,30 @@ def add_game_args(parser: argparse.ArgumentParser) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_game_args(parser)
-    parser.add_argument("--port", type=int, default=8800)
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8800)))
+    parser.add_argument("--public", action="store_true",
+                        help="the public demo site: a simulated robot against a random opponent, open to every "
+                             "visitor (watch and restart only), starting a new game after each one ends")
     args = parser.parse_args()
     args.label = None
+    if args.public:  # never the real robot, never anything a visitor could set off
+        args.sim, args.auto_opponent, args.voice, args.top_camera, args.supervise = True, True, "none", False, False
 
     session = Session(args)
-    server = make_server(session, args.port)
+    server = make_server(session, args.port, public=args.public)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     session.start()
-    print(f"Dream Chess: http://127.0.0.1:{args.port}  ({'simulation' if args.sim else 'LIVE ROBOT'}; Ctrl+C to stop)")
+    where = f"http://0.0.0.0:{args.port} (public demo)" if args.public else f"http://127.0.0.1:{args.port}"
+    print(f"Dream Chess: {where}  ({'simulation' if args.sim else 'LIVE ROBOT'}; Ctrl+C to stop)", flush=True)
+    ended_at = None
     try:
         while True:
             time.sleep(0.5)
+            if args.public and not session.running:  # the site always has a game on: a new one shortly after each
+                ended_at = ended_at or time.monotonic()
+                if time.monotonic() - ended_at > 10:
+                    session.start()
+                    ended_at = None
     except KeyboardInterrupt:
         print("\nStopping: the arms first, then the game.")
         session.shutdown()

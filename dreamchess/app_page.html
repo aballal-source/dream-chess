@@ -1042,8 +1042,15 @@ async function tick() {
     const sim = st.mode === "simulation";
     const mode = sim ? "sim" : st.webcam ? "webcam" : "station";
     if (eyesSetUp !== mode) { eyesSetUp = mode; setupEyes(mode); loadCamera(true); readVision(); }
-    $("mode").textContent = sim ? "Simulation" : "Live robot"; $("mode").className = "chip " + (sim ? "sim" : "live");
+    $("mode").textContent = st.public ? "Public demo" : sim ? "Simulation" : "Live robot"; $("mode").className = "chip " + (sim ? "sim" : "live");
     $("stoparms").hidden = sim;
+    if (st.public && !$("publicnote")) {  // the public demo site
+      const note = document.createElement("div"); note.id = "publicnote"; note.className = "banner end";
+      note.textContent = "Live demo: a simulated robot plays a random opponent through the real agents, Stockfish, "
+        + "prompts and checks. The real YAM arms play at the station, driven by Dream-1.";
+      $("banner").after(note);
+      $("mode").textContent = "Public demo";
+    }
     $("voicecard").hidden = !st.voice || st.voice === "none";
     $("listen").hidden = st.voice !== "livekit";
     if (!restartArmed && !$("newgame").disabled) $("newgame").textContent = st.running ? "Restart game" : "New game";

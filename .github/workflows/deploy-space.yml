@@ -1,0 +1,31 @@
+# Publish the public demo site to Hugging Face Spaces on every change to main.
+# Needs, in the repo's Settings -> Secrets and variables -> Actions:
+#   secret   HF_TOKEN  a Hugging Face access token with write access
+#   variable HF_SPACE  the Space, as owner/name (e.g. ahmed/dream-chess), created with the Docker SDK
+name: deploy-space
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: ${{ vars.HF_SPACE != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Push a snapshot to the Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+        run: |
+          # Spaces refuse binary files outside Git LFS, and the site needs none: drop them, and the history.
+          rm -rf docs/*.gif docs/*.pdf docs/*.png tests/data
+          # A Space reads its settings from the front of its README.
+          { printf -- '---\ntitle: Dream Chess\nemoji: ♟️\ncolorFrom: yellow\ncolorTo: red\nsdk: docker\napp_port: 7860\npinned: false\nshort_description: YAM arms play chess with Dream-1, a multi-agent demo\n---\n\n'; cat README.md; } > README.space.md
+          mv README.space.md README.md
+          git config user.name "github-actions" && git config user.email "actions@github.com"
+          git checkout --orphan space
+          git add -A && git commit -qm "Dream Chess demo from ${GITHUB_SHA::7}"
+          git push --force "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" space:main
