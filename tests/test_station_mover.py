@@ -17,11 +17,18 @@ STEP = Step("w", "knight", "g1", "f3", "right", "pick up the knight on g1", {})
 
 
 class FakeStation:
-    """A station whose run takes `run_s` seconds of wall time, whatever its step count."""
+    """A station whose run takes `run_s` seconds of wall time, whatever its step count.
 
-    def __init__(self, run_s=0.15, home_s=0.1, fail_run=False, never_ends=False):
+    `warm_s` is how long the model takes to start on DreamAPI before its first action. Like the real station, a
+    model that answers only after `move_after_s` doesn't move: the run ends with no actions ("start the run again,
+    and it moves at once"), and the next run moves at once. `never_answers` is a model that never starts."""
+
+    def __init__(self, run_s=0.15, home_s=0.1, fail_run=False, never_ends=False, warm_s=0.0, move_after_s=0.3,
+                 never_answers=False):
         self.run_s, self.home_s = run_s, home_s
         self.fail_run, self.never_ends = fail_run, never_ends
+        self.warm_s, self.move_after_s, self.never_answers = warm_s, move_after_s, never_answers
+        self.chunks = 0
         self.state = "idle"
         self.last_error = None
         self.arms = {"left": True, "right": True}
@@ -32,7 +39,8 @@ class FakeStation:
 
     def status(self):
         with self.lock:
-            return {"state": self.state, "run": self.run, "last_error": self.last_error, "arms": dict(self.arms)}
+            return {"state": self.state, "run": self.run, "last_error": self.last_error, "arms": dict(self.arms),
+                    "chunks": self.chunks}
 
     def _later(self, seconds, action):
         def go():
@@ -52,8 +60,17 @@ class FakeStation:
                 return 400, {"error": "steps must be a whole number of at least 1"}
             self.run += 1
             self.state = "starting"
+            self.chunks = 0
         self._cancel.clear()
         self._later(0.02, lambda: self._set("running"))
+        if self.never_answers:
+            return 200, self.status()  # runs with no actions until stopped
+        if self.warm_s > self.move_after_s:
+            # The model answers too late to move: the run ends with no actions, and it's warm from now on.
+            warm, self.warm_s = self.warm_s, 0.0
+            self._later(warm, lambda: self._set("idle", "the policy is ready: start the run again, and it moves at once"))
+            return 200, self.status()
+        self._later(0.04 + self.warm_s, self._first_action)  # once it's running
         if self.fail_run:
             self._later(self.run_s, lambda: self._set("error", "the right arm faulted"))
         elif not self.never_ends:
@@ -61,6 +78,11 @@ class FakeStation:
             self._later(self.run_s, lambda: (self._set("idle"), self._set("homing"),
                                              self._later(self.home_s, lambda: self._set("idle"))))
         return 200, self.status()
+
+    def _first_action(self):
+        with self.lock:
+            if self.state == "running":
+                self.chunks = 1
 
     def stop(self):
         self._cancel.set()
@@ -227,3 +249,24 @@ def test_works_as_the_orchestrators_mover(station):
     agent.play_robot_turn()
     assert world.occ == occupancy(board)
     assert station.run == 1
+
+
+# --- A model that is still starting on DreamAPI ---
+
+def test_a_long_warm_up_is_waited_out_then_the_step_runs_again(station):
+    station.warm_s = 0.6  # longer than the attempt limit, and too late for the station to move
+    notes = []
+    m = mover(station, attempt_s=0.1, grace_s=0.2, log=notes.append)
+    m.execute(STEP)
+    assert posts(station, "/stop") == []  # never cut off while the model was starting
+    assert len(posts(station, "/start")) == 2  # the first run moved nothing, so it ran again, by itself
+    assert station.chunks == 1
+    assert any("running the step again" in n for n in notes)
+
+
+def test_a_model_that_never_answers_is_stopped_and_reported(station):
+    station.never_answers = True
+    m = mover(station, attempt_s=0.1, grace_s=0.2, first_answer_s=0.4, restarts=1)
+    with pytest.raises(StationError, match="never moved"):
+        m.execute(STEP)
+    assert len(posts(station, "/stop")) == 2  # each run stopped once its wait for an answer ran out

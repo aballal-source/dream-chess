@@ -44,9 +44,18 @@ Set up the board with brown nearest the robot (rank 8 closest, the h-file at the
 spot beside each arm, and **a person with a hand on the e-stop**. Then:
 
 ```bash
-.venv/bin/python app.py                                    # the base model
+.venv/bin/python app.py                                    # the base model (dreamlabs/dream-1-beta)
 .venv/bin/python app.py --checkpoint "dream-1-ft:..."      # or a fine-tuned model
 ```
+
+The station keeps whichever model it ran last, so the app always names the one it wants: with no
+`--checkpoint`, that's the base model.
+
+**A model nobody has run lately takes a while to start on DreamAPI, up to 15 minutes for a fine-tune.** The app
+starts it as soon as it launches (`tools/warm_dream.py`, from a client of its own that never touches the arms), and
+"The robot's brain" shows it warming up with a timer. Set up the board meanwhile. If the robot's move begins before
+the model is ready, the arms wait without a time limit, and once Dream-1 answers the app starts the step again by
+itself, so nobody has to say whether a piece landed when nothing moved.
 
 The page asks for everything the terminal used to: confirm the board is set up, confirm the e-stop,
 make your move (type it, or click a piece and then its square), and, after each robot step, whether

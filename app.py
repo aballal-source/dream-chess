@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
+import tempfile
 import threading
 import time
 import traceback
@@ -77,6 +80,10 @@ class Session:
         # The robot's eyes: a simulated camera read by the real vision code, or the frames the station hands Dream-1.
         self._eyes: SimEyes | None = None
         self.frames = None if args.sim else StationFrames(getattr(args, "frames", "~/.dreamlabs/last-run_inputs"))
+        # Starting the model on DreamAPI before the first move needs it (tools/warm_dream.py), on the real robot.
+        self.warm_file = Path(tempfile.gettempdir()) / f"dream-chess-warm-{os.getpid()}.json"
+        self.warm_process: subprocess.Popen | None = None
+        self.warm_checkpoint: str | None = None
         # What the agent last asked Dream-1 to do, from the game's own events (both modes).
         self.dream: dict = {"state": "idle", "prompt": None, "arm": None, "attempt": None, "calls": 0,
                             "last_seconds": None, "landed": None}
@@ -164,6 +171,49 @@ class Session:
             self.lock.notify_all()
             return True
 
+    def model(self) -> str:
+        """The model the robot runs. On the real robot, the base model unless another was asked for."""
+        if self.args.sim:
+            return self.args.checkpoint or "Dream-1 (simulated)"
+        from dreamchess.station_mover import BASE_MODEL
+
+        return self.args.checkpoint or BASE_MODEL
+
+    def warm_up(self) -> None:
+        """Start the model on DreamAPI now, while the person sets up the board, and keep it running."""
+        if self.args.sim:
+            return
+        checkpoint = self.model()
+        if self.warm_process is not None and self.warm_process.poll() is None and self.warm_checkpoint == checkpoint:
+            return
+        self.stop_warm_up()
+        python = Path(getattr(self.args, "dream_python", "~/dream-env/bin/python")).expanduser()
+        script = Path(__file__).parent / "tools" / "warm_dream.py"
+        if not python.exists():
+            self.warm_file.write_text(json.dumps({"state": "off", "checkpoint": checkpoint,
+                                                  "message": f"no Dream library Python at {python}"}))
+            return
+        self.warm_checkpoint = checkpoint
+        self.warm_process = subprocess.Popen(
+            [str(python), "-W", "ignore", str(script), checkpoint, str(self.warm_file), "--parent", str(os.getpid())],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def stop_warm_up(self) -> None:
+        if self.warm_process is not None and self.warm_process.poll() is None:
+            self.warm_process.terminate()
+        self.warm_process = None
+
+    def warm_status(self) -> dict | None:
+        try:
+            status = json.loads(self.warm_file.read_text())
+        except (OSError, ValueError):
+            return None
+        if status.get("checkpoint") != self.model():
+            return None
+        if status.get("since"):
+            status["waited_s"] = round((status.get("ready_at") or time.time()) - status["since"])
+        return status
+
     def start(self) -> bool:
         with self.lock:
             if self.running:
@@ -176,6 +226,7 @@ class Session:
                               landed=None)
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
+        self.warm_up()
         return True
 
     def _starting_snapshot(self) -> dict:
@@ -223,6 +274,7 @@ class Session:
         """Stop the arms, end the game so it closes its engine and saves its summary, and wait for it."""
         if not self.args.sim:
             self.stop_robot()
+        self.stop_warm_up()
         with self.lock:
             self.quitting = True
             self.lock.notify_all()
@@ -267,10 +319,10 @@ class Session:
         """Dream-1 at work: what the agent last asked it, plus the station's own status on the real robot."""
         with self.lock:
             dream = dict(self.dream)
-        model = self.args.checkpoint or ("Dream-1 (simulated)" if self.args.sim else "Dream-1 base")
-        out = {"model": model, "simulated": bool(self.args.sim), **dream}
+        out = {"model": self.model(), "simulated": bool(self.args.sim), **dream}
         if not self.args.sim:
             out["station"] = station_telemetry(self.args.station)
+            out["warm"] = self.warm_status()
         return out
 
     def state(self, since: int) -> dict:
@@ -297,7 +349,7 @@ class Session:
             "mismatch": snapshot.get("mismatch", []),
             "setup": snapshot.get("setup", False),
             "mode": "simulation" if self.args.sim else "live robot",
-            "checkpoint": self.args.checkpoint or ("simulated robot" if self.args.sim else "station default"),
+            "checkpoint": self.model(),
             "auto_opponent": bool(getattr(self.args, "auto_opponent", False)),
         }
 
@@ -375,7 +427,9 @@ def add_game_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--auto-opponent", action="store_true", help="with --sim, a random opponent plays White")
     parser.add_argument("--pace", type=float, default=1.0, help="with --sim, seconds between steps, to watch it")
     parser.add_argument("--fen", default=chess.STARTING_FEN)
-    parser.add_argument("--checkpoint", help="the model to run, such as a fine-tuned ID; default keeps the station's")
+    parser.add_argument("--checkpoint", help="the model to run, such as a fine-tuned ID; default: the base model")
+    parser.add_argument("--dream-python", default="~/dream-env/bin/python",
+                        help="the Dream library's Python, which starts the model on DreamAPI before the first move")
     parser.add_argument("--seconds", type=float, default=30.0, help="time limit per Dream-1 attempt")
     parser.add_argument("--stockfish", help="path to Stockfish (or set STOCKFISH_PATH)")
     parser.add_argument("--station", default="http://127.0.0.1:8091")

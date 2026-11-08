@@ -19,8 +19,14 @@ from typing import Callable
 from .core import MoverError, Step
 
 DEFAULT_URL = "http://127.0.0.1:8091"
+# The station keeps whichever model it ran last, so "the base model" has to be asked for by name.
+BASE_MODEL = "dreamlabs/dream-1-beta"
 CONTROL_HZ = 20  # the station's loop rate on a YAM: one step is one command to the arms
 BUSY = {"starting", "running", "stopping", "homing", "resetting"}
+# A model that isn't running on DreamAPI yet takes a while to start: "a cold one can take 15 minutes", the station
+# says, and it waits that out itself (up to 30) with the arms still. So allow this long for Dream-1's first answer.
+FIRST_ANSWER_WAIT_S = 20 * 60
+WAIT_NOTE_EVERY_S = 30.0
 
 
 class StationError(MoverError):
@@ -66,6 +72,9 @@ class StationClient:
     def home(self) -> dict:
         return self._request("POST", "/home", {})
 
+    def reset(self) -> dict:
+        return self._request("POST", "/reset", {})
+
 
 class StationMover:
     """A Mover for the orchestrator that runs each step as one station run."""
@@ -77,6 +86,8 @@ class StationMover:
         checkpoint: str | None = None,
         poll_s: float = 0.5,
         grace_s: float = 20.0,
+        first_answer_s: float = FIRST_ANSWER_WAIT_S,
+        restarts: int = 3,
         log: Callable[[str], None] = print,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
@@ -87,6 +98,8 @@ class StationMover:
         self.checkpoint = checkpoint  # None keeps the station's current model
         self.poll_s = poll_s
         self.grace_s = grace_s  # time to start up, home, and answer, beyond the run itself
+        self.first_answer_s = first_answer_s  # how long Dream-1 may take to send its first action
+        self.restarts = restarts  # runs to start again because the model answered too late for the arms to move
         self.log = log
         self.clock = clock
         self.sleep = sleep
@@ -106,6 +119,41 @@ class StationMover:
         if status.get("state") == "error":
             raise StationError(f"station reported an error: {status.get('last_error') or 'no details'}")
 
+    def _run(self, step: Step) -> tuple[dict, bool]:
+        """One station run of the step. Returns the settled status and whether Dream-1 sent any actions, which is
+        whether the arms could have moved at all.
+
+        The time limit counts from Dream-1's first action, not from the start: until then the model may still be
+        starting on DreamAPI, the station waits with the arms still, and there is nothing to stop."""
+        self.client.start(step.prompt, self.steps, self.checkpoint)
+        started = self.clock()
+        first_action = None
+        reports_chunks = False
+        noted = started
+        while True:
+            status = self.client.status()
+            reports_chunks = reports_chunks or "chunks" in status
+            if (status.get("chunks") or 0) > 0 and first_action is None:
+                first_action = self.clock()
+            if status.get("state") not in BUSY:
+                break
+            now = self.clock()
+            waiting = reports_chunks and first_action is None
+            limit = (started + self.first_answer_s) if waiting else (first_action or started) + self.attempt_s + self.grace_s
+            if now >= limit:
+                self.log("      Dream-1 never answered: stopping the run" if waiting
+                         else "      the station run went past its time limit: stopping it")
+                self.client.stop()
+                status = self._wait_until_settled(self.grace_s)
+                break
+            if waiting and now - noted >= WAIT_NOTE_EVERY_S:
+                noted = now
+                self.log(f"      waiting for Dream-1's first answer ({now - started:.0f} s): the model is starting "
+                         "on DreamAPI, and the arms wait until it answers")
+            self.sleep(self.poll_s)
+        moved = first_action is not None or not reports_chunks or (status.get("chunks") or 0) > 0
+        return status, moved
+
     def execute(self, step: Step) -> None:
         before = self.client.status()
         if before.get("state") != "idle":
@@ -114,16 +162,24 @@ class StationMover:
         if dead:
             raise StationError(f"station reports a dead arm driver: {', '.join(dead)}")
 
-        self.client.start(step.prompt, self.steps, self.checkpoint)
-        after = self._wait_until_settled(self.attempt_s + self.grace_s)
-        if after.get("state") in BUSY:
-            # The run should have ended by now, so stop it rather than let it keep going.
-            self.log("      the station run went past its time limit: stopping it")
-            self.client.stop()
-            after = self._wait_until_settled(self.grace_s)
+        after, moved = self._run(step)
+        for _ in range(self.restarts):
+            if moved or (after.get("state") == "error" and "ready" not in str(after.get("last_error") or "")):
+                break  # it moved, or something else went wrong: _check() below says what
+            # No actions came, so the arms never moved and the board is as it was. That happens when the model
+            # answered only after a long start: the station then refuses to move on its own ("start the run again,
+            # and it moves at once"). So start the same step again rather than ask anyone whether it landed.
+            self.log("      Dream-1 is ready now; the arms didn't move yet, so running the step again")
+            if after.get("state") == "error":
+                self.client.reset()
+                after = self._wait_until_settled(self.grace_s * 3)
+                self._check(after)
+            after, moved = self._run(step)
         self._check(after)
         if after.get("state") in BUSY:
             raise StationError(f"station still {after.get('state')} after stopping")
+        if not moved:
+            raise StationError("Dream-1 sent no actions, so the arms never moved")
 
     def go_home(self) -> None:
         """Clear the top camera's view. A run that used up its steps already went home."""

@@ -104,7 +104,7 @@ def play(args, ask=input, say=print, client=None, clock=time.monotonic, on_event
         stop_arms = lambda: None
         physical = lambda: dict(world.occ)
     else:
-        from dreamchess.station_mover import StationClient, StationMover
+        from dreamchess.station_mover import BASE_MODEL, StationClient, StationMover
 
         client = client or StationClient(args.station)
         status = client.status()
@@ -116,6 +116,7 @@ def play(args, ask=input, say=print, client=None, clock=time.monotonic, on_event
         if ask("This moves the arms. Type yes when a person has a hand on the e-stop: ").strip().lower() != "yes":
             raise SystemExit("Stopped: nobody confirmed the e-stop.")
         eyes = HumanEyes(board, ask, say, record=log)
+        args.checkpoint = args.checkpoint or BASE_MODEL  # the station keeps its last model unless told
         station = StationMover(client, attempt_s=args.seconds, checkpoint=args.checkpoint, log=say)
         mover = AttemptMover(station, eyes, log, clock)
         perception = eyes
@@ -184,7 +185,7 @@ def main() -> None:
     parser.add_argument("--fen", default=chess.STARTING_FEN, help="starting position; default is a normal game")
     parser.add_argument("--label", help="a name for the game log; default is the date and time")
     parser.add_argument("--seconds", type=float, default=30.0, help="time limit per Dream-1 attempt")
-    parser.add_argument("--checkpoint", help="the model to run, such as a fine-tuned ID; default keeps the station's")
+    parser.add_argument("--checkpoint", help="the model to run, such as a fine-tuned ID; default: the base model")
     parser.add_argument("--stockfish", help="path to Stockfish (or set STOCKFISH_PATH)")
     parser.add_argument("--max-plies", type=int, default=None, help="stop after this many half-moves")
     parser.add_argument("--station", default="http://127.0.0.1:8091")

@@ -299,3 +299,30 @@ def test_the_page_shows_the_position_to_set_up_before_the_game_starts(tmp_path, 
     assert state["setup"] is False
     session.answer(state["pending"]["id"], "quit")
     wait_for(session, lambda s: not s["running"])
+
+
+# --- Starting the model on DreamAPI before the first move ---
+
+def test_the_live_robot_runs_the_base_model_by_name_unless_told_otherwise(tmp_path, station):  # noqa: F811
+    session = app.Session(args(tmp_path, sim=False, station=station.url))
+    assert session.model() == "dreamlabs/dream-1-beta"
+    assert app.Session(args(tmp_path, sim=False, checkpoint="dream-1-ft:x-chess")).model() == "dream-1-ft:x-chess"
+
+
+def test_the_brain_shows_the_model_warming_up(tmp_path, station):  # noqa: F811
+    session = app.Session(args(tmp_path, sim=False, station=station.url, checkpoint="dream-1-ft:x-chess"))
+    session.warm_file = tmp_path / "warm.json"
+    session.warm_file.write_text(json.dumps({"state": "warming", "checkpoint": "dream-1-ft:x-chess",
+                                             "since": time.time() - 90}))
+    warm = session.brain()["warm"]
+    assert warm["state"] == "warming" and 89 <= warm["waited_s"] <= 92
+    session.warm_file.write_text(json.dumps({"state": "ready", "checkpoint": "some-other-model", "since": 1}))
+    assert session.brain()["warm"] is None  # a status for another model isn't this one's
+
+
+def test_without_the_dream_library_the_warm_up_says_so(tmp_path, station):  # noqa: F811
+    session = app.Session(args(tmp_path, sim=False, station=station.url, dream_python=str(tmp_path / "nope")))
+    session.warm_file = tmp_path / "warm.json"
+    session.warm_up()
+    assert session.warm_process is None
+    assert session.brain()["warm"]["state"] == "off"

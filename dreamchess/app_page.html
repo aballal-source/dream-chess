@@ -182,6 +182,16 @@ button, input { font: inherit; color: inherit; }
 .kv div { padding: 10px 12px; border-radius: 10px; background: var(--card-2); border: 1px solid var(--line); min-width: 0; }
 .kv span { display: block; font-size: 11px; color: var(--ink-3); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .kv b { display: block; font: 600 17px var(--display); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.warm { margin: 16px 0 0; padding: 12px 16px; border-radius: 12px; background: var(--brand-soft); border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent); }
+.warm .t { font-weight: 600; color: var(--brand); display: flex; justify-content: space-between; gap: 8px; }
+.warm .d { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+.warm.ready { background: var(--green-soft); border-color: transparent; } .warm.ready .t { color: var(--green); }
+.warm.error { background: var(--red-soft); border-color: transparent; } .warm.error .t { color: var(--red); }
+.bar-track { height: 4px; border-radius: 4px; margin-top: 10px; background: color-mix(in srgb, var(--brand) 15%, transparent); overflow: hidden; }
+.bar-track i { display: block; height: 100%; width: 35%; border-radius: 4px; background: var(--brand); animation: slide 1.6s ease-in-out infinite; }
+.warm.ready .bar-track, .warm.error .bar-track { display: none; }
+@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
+.asknote { margin-top: 8px; font-size: 13px; color: var(--brand); font-weight: 600; }
 .explain { font-size: 13px; color: var(--ink-2); margin: 16px 0 0; }
 .explain code { font: 12px var(--mono); background: var(--bg); padding: 1px 6px; border-radius: 5px; }
 
@@ -302,6 +312,7 @@ button, input { font: inherit; color: inherit; }
       <div class="ask" id="ask" aria-live="polite">
         <div class="q" id="askq">Starting...</div>
         <div class="hint" id="askhint"></div>
+        <div class="asknote" id="asknote" hidden></div>
         <div class="row" id="askrow"></div>
       </div>
     </section>
@@ -317,6 +328,8 @@ button, input { font: inherit; color: inherit; }
   </svg>
           <div><h2 id="brain-h">The robot's brain</h2><div class="sub" style="margin:0">Dream-1 via DreamAPI · <span id="brainmodel"></span></div></div>
           <span class="status wait state" id="brainstate">Idle</span></div>
+        <div class="warm" id="warm" hidden><div class="t"><span id="warm-t"></span><span id="warm-time"></span></div>
+          <div class="d" id="warm-d"></div><div class="bar-track"><i></i></div></div>
         <div class="instr"><div class="eyebrow">Instruction from the agent</div>
           <div class="text none" id="instr">Waiting for the agent's first instruction.</div></div>
         <div class="kv">
@@ -599,16 +612,51 @@ async function readVision() {
 }
 
 // --- the robot's brain --------------------------------------------------------------------------------------
+// "dream-1-ft:0b7a43f9-xiangwen-chess" reads as "xiangwen-chess · fine-tune"; the full ID stays in the tooltip.
+const modelName = id => !id ? "" : id.startsWith("dream-1-ft:") ? id.replace(/^dream-1-ft:[0-9a-f]+-/, "") + " · fine-tune"
+  : id.replace(/^dreamlabs\//, "");
+const mins = s => s == null ? "" : s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s`;
+// The model has to be running on DreamAPI before the arms can move. The app starts it at launch; this shows how
+// that's going, so a slow first move never looks like a broken robot.
+function showWarm(w, waitingFirst, model) {
+  const box = $("warm"), note = $("asknote");
+  let title = "", detail = "", cls = "", time = "";
+  if (w && w.state === "warming") {
+    title = "Starting the model on DreamAPI"; time = mins(w.waited_s);
+    detail = `${model} hasn't run lately, so Dream is loading it. That can take up to 15 minutes. ` +
+      "The arms wait until it's ready; set up the board meanwhile.";
+  } else if (waitingFirst) {
+    title = "Waiting for Dream-1's first answer";
+    detail = "The robot's move has started. The arms stay still until Dream-1 answers.";
+  } else if (w && w.state === "ready") {
+    title = "Ready on DreamAPI"; cls = "ready"; time = w.waited_s ? `started in ${mins(w.waited_s)}` : "";
+    detail = `${model} is running and answering, so the arms move as soon as the agent sends a step.`;
+  } else if (w && w.state === "error") {
+    title = "Couldn't start the model"; cls = "error"; detail = w.message || "";
+  }
+  box.hidden = !title; box.className = "warm " + cls;
+  $("warm-t").textContent = title; $("warm-time").textContent = time; $("warm-d").textContent = detail;
+  const busy = (w && w.state === "warming") || waitingFirst;
+  note.hidden = !busy;
+  note.textContent = busy ? (w && w.state === "warming" ? `Dream-1 is still starting up (${mins(w.waited_s)} so far). The robot's first move waits for it.`
+    : "Dream-1 is about to answer: the arms will move shortly.") : "";
+}
 async function readBrain() {
   try {
     const b = await (await fetch("/brain", { cache: "no-store" })).json();
-    $("brainmodel").textContent = b.simulated ? "simulated for rehearsal" : b.model; $("model").textContent = b.model;
+    $("brainmodel").textContent = b.simulated ? "simulated for rehearsal" : modelName(b.model);
+    $("model").textContent = b.simulated ? b.model : modelName(b.model); $("model").title = b.model;
     const st = $("brainstate"), moving = b.state === "moving";
     let label = moving ? "Moving the arms" : "Idle";
+    const w = b.warm, s0 = b.station || {};
+    const waitingFirst = s0.state === "running" && !s0.chunks;
     if (b.station) {
       if (!b.station.reachable) label = "Station offline";
+      else if (waitingFirst) label = "Waiting for Dream-1";
       else if (b.station.state && b.station.state !== "idle") label = `Station: ${b.station.state}`;
     }
+    if (w && w.state === "warming" && !moving) label = "Warming up";
+    showWarm(w, waitingFirst, modelName(b.model));
     st.textContent = label; st.className = "status state " + (moving || (b.station && b.station.state === "running") ? "moving" : (b.station && !b.station.reachable ? "bad" : "wait"));
     const instr = $("instr");
     if (b.prompt) { instr.textContent = `“${b.prompt}”`; instr.className = "text"; }
