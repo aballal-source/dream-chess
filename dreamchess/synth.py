@@ -54,6 +54,7 @@ class SynthCamera:
         jitter: float = 0.005,
         with_depth: bool = True,
         seed: int = 0,
+        side: str = "white",
     ):
         self.square = square
         self.depth_noise, self.dropout, self.color_noise = depth_noise, dropout, color_noise
@@ -66,9 +67,11 @@ class SynthCamera:
         self.intrinsics = Intrinsics(focal, focal, width / 2, height / 2)
         center = np.array([4 * square, 4 * square, 0.0])
         tilt = np.radians(tilt_deg)
-        self.position = center + distance * np.array([0, -np.sin(tilt), np.cos(tilt)])
+        # "white" looks from behind rank 1; "black" from behind rank 8, where the robot's own camera sits.
+        facing = 1.0 if side == "white" else -1.0
+        self.position = center + distance * np.array([0, -facing * np.sin(tilt), np.cos(tilt)])
         forward = (center - self.position) / distance
-        right = np.cross(forward, [0, 1, 0])
+        right = np.cross(forward, [0, facing, 0])
         right /= np.linalg.norm(right)
         self.axes = np.column_stack((right, np.cross(forward, right), forward))  # camera to world
 

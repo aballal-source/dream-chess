@@ -142,9 +142,18 @@ camera code takes over and nothing else changes.
 
 ## The app
 
-`app.py` shows the robot thinking through every step of a game, live: your move, What, Where, How,
-Check and Record, with the board as recorded beside the board as the robot sees it. Everything the
-person needs to do, from confirming the e-stop to saying whether a piece landed, happens on the page.
+`app.py` shows the whole agent at work, live, on one screen:
+
+- **How the agent plays**: the loop of Eyes, Agent, Stockfish, Dream-1, Arms and Check, each lighting up as it works.
+- **The robot's eyes**: the camera frame, the grid and pieces the vision code found on it, and the board it read,
+  with any square that differs from the game marked. In a simulation, a simulated top camera is read by the real
+  vision code. On the robot, it shows the frames the station hands Dream-1 (top and both wrists).
+- **The robot's brain**: Dream-1 via DreamAPI. It shows the exact sentence the agent sent, the arm, the attempt, and,
+  on the robot, the station's own status: round trip, inference time, action chunks.
+- **The game** and **this move, step by step**: your move, What, Where, How, Check and Record.
+- **Activity**: the full log, folded to its latest line until you open it.
+
+Everything the person needs to do, from confirming the e-stop to saying whether a piece landed, happens on the page.
 
 ```bash
 python app.py --sim --auto-opponent      # dummy data: watch a simulated robot play itself
@@ -190,7 +199,7 @@ fixes, human rescues, and moves per hour. Ctrl-C stops the arms at once.
 | How: send a step to the station | `dreamchess/station_mover.py` |
 | Check: read the board from the camera | `dreamchess/vision.py`, `vision_tool.py` |
 | A person standing in for the camera | `dreamchess/human_eyes.py` |
-| Play a real game: the app, or the terminal | `app.py`, `dreamchess/app_page.html`, `run_robot.py` |
+| Play a real game: the app, or the terminal | `app.py`, `dreamchess/app_page.html`, `dreamchess/app_vision.py`, `run_robot.py` |
 | Watch a data collection session | `collect_watch.py` |
 | Dream-1 eval | `eval_dream.py`, `dreamchess/evaluation.py` |
 | Simulation and visuals | `dreamchess/mock.py`, `dreamchess/synth.py`, `dreamchess/replay.py`, `visualize.py` |

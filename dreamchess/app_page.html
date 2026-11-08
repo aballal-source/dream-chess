@@ -1,220 +1,414 @@
 <!doctype html>
 <html lang="en">
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Dream Chess</title>
 <style>
-/* Layout: a header strip with the robot's status; below it the board on the left, the robot's reasoning
-   pipeline in the middle, and the conversation (questions and activity) on the right. */
+/* Dream Chess. One screen, read left to right the way the agent works:
+   the robot's eyes (camera -> detected board), the game it reasons about, and its brain (Dream-1 via DreamAPI).
+   Spacing is on an 8-point grid; system fonts; light and dark follow the device. */
 :root {
-  --ground: #eef1ea; --surface: #ffffff; --ink: #1c2a24; --quiet: #5a675f; --rule: #d2dbd1;
-  --accent: #1f6b4c; --accent-soft: #dcefe3; --bad: #b0391f; --bad-soft: #f8e1db; --warn: #a87300; --warn-soft: #f6ebd0;
-  --light: #efe7cf; --dark: #789f7f; --brown: #7a4a24; --cream: #fbf6e8; --hl: #e5b93c;
-  --display: "Segoe UI Semibold", "Segoe UI", system-ui, sans-serif; --body: "Segoe UI", system-ui, sans-serif;
-  --mono: Consolas, "SF Mono", Menlo, monospace;
+  --bg: #f5f5f7; --card: #ffffff; --card-2: #fbfbfd; --ink: #1d1d1f; --ink-2: #515154; --ink-3: #86868b;
+  --line: rgba(0,0,0,.08); --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+  --blue: #0a66e4; --blue-soft: #e8f0fd; --green: #1f8a4c; --green-soft: #e4f4ea; --red: #d1342b; --red-soft: #fbe7e5;
+  --amber: #b46900; --amber-soft: #fdf1dc; --violet: #6c3ce0; --violet-2: #c43fd6; --violet-soft: #f1ebfd;
+  --light-sq: #ecdfc6; --dark-sq: #b58a5e; --brown: #6b3f1f; --ivory: #fffaf0;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", Roboto, system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  --r: 16px; --r-sm: 10px;
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --ground: #141a17; --surface: #1c2521; --ink: #e6ece7; --quiet: #a0aea6; --rule: #33413a;
-    --accent: #5fc493; --accent-soft: #213a2c; --bad: #f08a72; --bad-soft: #43251e; --warn: #e8b648; --warn-soft: #3d3218; }
+  :root { --bg: #000000; --card: #1c1c1e; --card-2: #232326; --ink: #f5f5f7; --ink-2: #c7c7cc; --ink-3: #8e8e93;
+    --line: rgba(255,255,255,.1); --shadow: 0 1px 2px rgba(0,0,0,.5);
+    --blue: #4c9aff; --blue-soft: #102641; --green: #3fca7a; --green-soft: #0f2f1d; --red: #ff6b5f; --red-soft: #3a1512;
+    --amber: #ffb340; --amber-soft: #3a2909; --violet: #a888ff; --violet-2: #e27cf0; --violet-soft: #241a3d;
+    --light-sq: #c9b693; --dark-sq: #8a6440; color-scheme: dark; }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.45 var(--body); }
-header { position: sticky; top: 0; z-index: 3; background: var(--surface); border-bottom: 1px solid var(--rule);
-  padding: 10px max(16px, 2vw); display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; }
-h1 { margin: 0; font: 700 20px var(--display); }
-.badge { font: 700 12px var(--body); letter-spacing: .06em; text-transform: uppercase; padding: 3px 9px; border-radius: 99px; }
-.badge.sim { background: var(--warn-soft); color: var(--warn); }
-.badge.live { background: var(--bad-soft); color: var(--bad); }
-.meta { color: var(--quiet); font-size: 13px; }
-.stats { display: flex; gap: 16px; font-variant-numeric: tabular-nums; }
-.stats b { font: 700 18px var(--display); } .stats small { color: var(--quiet); font-size: 12px; margin-left: 3px; }
-.spacer { flex: 1; }
-button { font: 600 14px var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--rule);
-  border-radius: 7px; padding: 8px 14px; cursor: pointer; }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
-button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
-button:disabled { opacity: .45; cursor: default; }
-button:focus-visible, input:focus-visible { outline: 3px solid var(--hl); outline-offset: 2px; }
-main { display: grid; grid-template-columns: minmax(300px, 420px) minmax(300px, 1fr) minmax(280px, 380px); gap: 18px;
-  padding: 18px max(16px, 2vw) 40px; align-items: start; }
-@media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr); } }
-section h2 { margin: 0 0 8px; font: 700 13px var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--quiet); }
-.side { display: flex; justify-content: space-between; font-size: 13px; color: var(--quiet); margin: 4px 2px; }
-.board { display: grid; grid-template: repeat(8, 1fr) / repeat(8, 1fr); aspect-ratio: 1; border-radius: 6px; overflow: hidden;
-  border: 1px solid var(--rule); user-select: none; }
-.sq { position: relative; display: grid; place-items: center; }
-.sq.l { background: var(--light); } .sq.d { background: var(--dark); }
-.sq.from::after, .sq.to::after, .sq.last::after { content: ""; position: absolute; inset: 0; }
-.sq.last::after { background: rgba(229, 185, 60, .28); }
-.sq.from::after { box-shadow: inset 0 0 0 4px var(--hl); }
-.sq.to::after { box-shadow: inset 0 0 0 4px var(--accent); }
-.sq.pick::after { box-shadow: inset 0 0 0 4px #3b7dd8; }
-.sq.click { cursor: pointer; }
-.coord { position: absolute; left: 3px; bottom: 1px; font-size: 10px; color: rgba(0,0,0,.45); }
-.piece { width: 72%; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; font: 700 clamp(12px, 2vw, 19px) var(--display);
-  box-shadow: 0 2px 3px rgba(0,0,0,.35); }
-.piece.w { background: var(--cream); color: #2a221c; border: 2px solid #2a221c; }
-.piece.b { background: var(--brown); color: #fbf6e8; border: 2px solid #3a220f; }
-.mini { margin-top: 14px; }
-.mini .board { width: 62%; }
-.dot { width: 46%; aspect-ratio: 1; border-radius: 50%; }
-.dot.w { background: var(--cream); border: 2px solid #2a221c; } .dot.b { background: var(--brown); }
-.sq.miss::before { content: ""; position: absolute; inset: 3px; border: 3px dashed var(--bad); border-radius: 4px; }
-.sq.extra::before { content: ""; position: absolute; inset: 0; background: rgba(176, 57, 31, .35); }
-.legend { font-size: 12px; color: var(--quiet); margin-top: 6px; }
-.pipeline { display: grid; gap: 10px; }
-.stage { background: var(--surface); border: 1px solid var(--rule); border-radius: 9px; padding: 11px 14px; display: grid; gap: 4px;
-  border-left: 5px solid var(--rule); }
-.stage.active { border-left-color: var(--hl); box-shadow: 0 0 0 1px var(--hl); }
-.stage.done { border-left-color: var(--accent); }
-.stage.failed { border-left-color: var(--bad); background: var(--bad-soft); }
-.stage .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-.stage .name { font: 700 16px var(--display); }
-.stage .what { color: var(--quiet); font-size: 13px; }
-.chip { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--ground); color: var(--quiet); white-space: nowrap; }
-.active .chip { background: var(--warn-soft); color: var(--warn); }
-.done .chip { background: var(--accent-soft); color: var(--accent); }
-.failed .chip { background: var(--bad); color: #fff; }
-.detail { font-size: 14px; } .detail b { font-weight: 600; }
-.prompt { font: 13px/1.5 var(--mono); background: var(--ground); border-radius: 6px; padding: 7px 9px; overflow-wrap: anywhere; }
-.ask { background: var(--surface); border: 2px solid var(--rule); border-radius: 10px; padding: 14px; display: grid; gap: 10px; }
-.ask.on { border-color: var(--hl); box-shadow: 0 0 0 3px rgba(229, 185, 60, .25); }
-.ask .q { font: 600 16px var(--display); }
-.ask .row { display: flex; flex-wrap: wrap; gap: 8px; }
-.ask input { flex: 1 1 140px; min-width: 0; font: 15px var(--body); padding: 8px 10px; border: 1px solid var(--rule); border-radius: 7px;
-  background: var(--surface); color: var(--ink); }
-.hint { font-size: 13px; color: var(--quiet); }
-.log { margin-top: 14px; max-height: 420px; overflow-y: auto; display: grid; gap: 2px; font-size: 13px; }
-.log div { padding: 4px 6px; border-bottom: 1px solid var(--rule); }
-.log .err { color: var(--bad); font-weight: 600; }
-.banner { grid-column: 1 / -1; padding: 10px 14px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); font-weight: 600; }
-.end { background: var(--accent-soft); color: var(--accent); }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
 [hidden] { display: none !important; }
+
+/* App bar: translucent material, like a toolbar. */
+.bar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-right)) 12px max(24px, env(safe-area-inset-left));
+  background: color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; font: 600 19px/1 var(--display); letter-spacing: -.01em; }
+.logo { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #fff;
+  background: linear-gradient(135deg, var(--violet), var(--violet-2)); }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 99px;
+  background: var(--card); border: 1px solid var(--line); font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.chip b { color: var(--ink); font-weight: 600; }
+.chip.sim { background: var(--amber-soft); color: var(--amber); border-color: transparent; font-weight: 600; }
+.chip.live { background: var(--red-soft); color: var(--red); border-color: transparent; font-weight: 600; }
+.spacer { flex: 1; }
+.btn { height: 36px; padding: 0 16px; border-radius: 99px; border: 1px solid var(--line); background: var(--card);
+  font-weight: 600; font-size: 14px; cursor: pointer; transition: transform .12s, background .2s; }
+.btn:hover { background: var(--card-2); }
+.btn:active { transform: scale(.97); }
+.btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
+.btn.tonal { background: var(--blue-soft); color: var(--blue); border-color: transparent; }
+:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+
+.wrap { max-width: 1480px; margin: 0 auto; padding: 24px max(24px, env(safe-area-inset-left)) 48px; display: grid; gap: 16px; }
+.banner { padding: 12px 16px; border-radius: var(--r-sm); background: var(--red-soft); color: var(--red); font-weight: 600; }
+.banner.end { background: var(--green-soft); color: var(--green); }
+.card { background: var(--card); border-radius: var(--r); box-shadow: var(--shadow); padding: 20px; min-width: 0; }
+.card h2 { margin: 0; font: 600 17px/1.3 var(--display); letter-spacing: -.01em; }
+.sub { margin: 4px 0 16px; color: var(--ink-3); font-size: 13px; }
+.eyebrow { font-size: 12px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; }
+
+/* The agent loop: how the parts fit together, lit up as each one works. */
+.loop { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; align-items: stretch; position: relative; }
+.node { position: relative; display: grid; gap: 4px; justify-items: center; text-align: center; padding: 12px 8px;
+  border-radius: 14px; transition: background .3s, box-shadow .3s; }
+.node .ico { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--card-2);
+  border: 1px solid var(--line); color: var(--ink-2); transition: all .3s; }
+.node .ico svg { width: 22px; height: 22px; }
+.node .t { font-weight: 600; font-size: 14px; }
+.node .d { font-size: 12px; color: var(--ink-3); line-height: 1.3; }
+.node:not(:last-child)::after { content: ""; position: absolute; top: 34px; right: -12px; width: 24px; height: 2px;
+  background: var(--line); }
+.node.on .ico { background: var(--blue); color: #fff; border-color: transparent; box-shadow: 0 0 0 6px var(--blue-soft); }
+.node.brain .ico { background: linear-gradient(135deg, var(--violet), var(--violet-2)); color: #fff; border-color: transparent; }
+.node.brain { background: var(--violet-soft); }
+.node.brain .t { color: var(--violet); }
+.node.brain.on .ico { box-shadow: 0 0 0 6px color-mix(in srgb, var(--violet) 25%, transparent); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 12px color-mix(in srgb, var(--violet) 8%, transparent); } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+.grid { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(360px, 1.15fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1180px) { .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .grid > .brain-col { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } .loop { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 8px; }
+  .node:nth-child(3)::after { display: none; } .wrap { padding-inline: 16px; } .bar { padding-inline: 16px; } }
+.col { display: grid; gap: 16px; min-width: 0; }
+
+/* Segmented control. */
+.seg { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); }
+.seg button { border: 0; background: transparent; padding: 4px 12px; border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 600; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+
+/* Perception: the camera frame, then the board the vision code read from it. */
+.cam { position: relative; margin-top: 12px; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #111; }
+.cam img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .25s; }
+.cam img.zoom { transform: scale(1.55); transform-origin: 50% 52%; }
+.cam .empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #c7c7cc; padding: 24px; font-size: 13px; }
+.cam .tag { position: absolute; left: 8px; top: 8px; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;
+  color: #fff; background: rgba(0,0,0,.55); backdrop-filter: blur(8px); }
+.cam .live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #ff453a; margin-right: 6px; vertical-align: 1px; }
+.flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0; }
+.flow div { padding: 8px; border-radius: var(--r-sm); background: var(--card-2); border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
+.flow b { display: block; color: var(--ink); font-size: 13px; margin-bottom: 2px; }
+.detect { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+.status.ok { background: var(--green-soft); color: var(--green); }
+.status.bad { background: var(--red-soft); color: var(--red); }
+.status.wait { background: var(--bg); color: var(--ink-3); }
+.legend { display: grid; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+
+/* Boards. */
+.board { display: grid; grid-template: repeat(8, 1fr) / repeat(8, 1fr); aspect-ratio: 1; border-radius: 10px; overflow: hidden; user-select: none;
+  box-shadow: 0 0 0 1px var(--line); }
+.sq { position: relative; display: grid; place-items: center; }
+.sq.l { background: var(--light-sq); } .sq.d { background: var(--dark-sq); }
+.sq::after { content: ""; position: absolute; inset: 0; pointer-events: none; transition: box-shadow .2s, background .2s; }
+.sq.last::after { background: rgba(255, 214, 10, .32); }
+.sq.from::after { box-shadow: inset 0 0 0 4px var(--violet); }
+.sq.to::after { box-shadow: inset 0 0 0 4px var(--violet-2); background: color-mix(in srgb, var(--violet-2) 18%, transparent); }
+.sq.pick::after { box-shadow: inset 0 0 0 4px var(--blue); }
+.sq.click { cursor: pointer; }
+.sq.miss::after { box-shadow: inset 0 0 0 3px var(--red); }
+.sq.extra::after { box-shadow: inset 0 0 0 3px var(--amber); background: color-mix(in srgb, var(--amber) 22%, transparent); }
+.coord { position: absolute; font-size: 10px; font-weight: 600; color: rgba(0,0,0,.42); }
+.coord.rk { left: 4px; top: 2px; } .coord.fl { right: 4px; bottom: 1px; }
+.pc { font-size: clamp(22px, 4.2vw, 46px); line-height: 1; font-family: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2", serif; }
+.pc.w { color: var(--ivory); -webkit-text-stroke: 1.2px #2b2118; text-shadow: 0 2px 2px rgba(0,0,0,.25); }
+.pc.b { color: var(--brown); -webkit-text-stroke: .6px #2b160a; text-shadow: 0 2px 2px rgba(0,0,0,.3); }
+.mini .pc { display: none; }
+.dot { width: 56%; aspect-ratio: 1; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,.35); }
+.dot.w { background: var(--ivory); border: 2px solid #2b2118; } .dot.b { background: var(--brown); border: 2px solid #2b160a; }
+.boardhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.side { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-3); margin: 8px 2px; }
+.turn { font-weight: 600; } .incheck { color: var(--red); font-weight: 700; }
+
+/* The question for the person: a sheet that appears under the board. */
+.ask { margin-top: 16px; padding: 16px; border-radius: 14px; background: var(--card-2); border: 1px solid var(--line); transition: all .25s; }
+.ask.on { background: var(--blue-soft); border-color: transparent; }
+.ask .q { font-weight: 600; }
+.ask .hint { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+.ask .row { justify-content: flex-start; margin-top: 12px; }
+.ask input { height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); min-width: 0; flex: 1 1 140px; }
+
+/* Brain: Dream-1 via DreamAPI. */
+.brain-card { position: relative; overflow: hidden; }
+.brain-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: linear-gradient(90deg, var(--violet), var(--violet-2)); }
+.brainhead { display: flex; gap: 12px; align-items: center; }
+.brainhead .logo { width: 40px; height: 40px; border-radius: 12px; }
+.state { margin-left: auto; }
+.state.moving { background: var(--violet-soft); color: var(--violet); }
+.state.moving::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+.instr { margin: 16px 0; padding: 16px; border-radius: 12px; background: var(--card-2); border: 1px solid var(--line); }
+.instr .text { font: 500 17px/1.4 var(--display); margin-top: 6px; letter-spacing: -.01em; }
+.instr .text.none { color: var(--ink-3); font-size: 15px; }
+.kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.kv div { padding: 10px 12px; border-radius: 10px; background: var(--card-2); border: 1px solid var(--line); min-width: 0; }
+.kv span { display: block; font-size: 11px; color: var(--ink-3); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.kv b { display: block; font: 600 17px var(--display); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explain { font-size: 13px; color: var(--ink-2); margin: 16px 0 0; }
+.explain code { font: 12px var(--mono); background: var(--bg); padding: 1px 6px; border-radius: 5px; }
+
+/* Pipeline steps. */
+.steps { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 4px; }
+.step { display: grid; grid-template-columns: 24px 1fr; gap: 0 12px; padding: 8px; border-radius: 10px; transition: background .25s; }
+.step .n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700;
+  background: var(--bg); color: var(--ink-3); border: 1px solid var(--line); }
+.step .nm { font-weight: 600; font-size: 14px; }
+.step .nm small { font-weight: 400; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
+.step .dt { grid-column: 2; font-size: 13px; color: var(--ink-2); }
+.step .dt:empty { display: none; }
+.step.active { background: var(--blue-soft); } .step.active .n { background: var(--blue); color: #fff; border-color: transparent; }
+.step.done .n { background: var(--green); color: #fff; border-color: transparent; }
+.step.failed { background: var(--red-soft); } .step.failed .n { background: var(--red); color: #fff; border-color: transparent; }
+.step.how.active { background: var(--violet-soft); } .step.how.active .n { background: var(--violet); }
+.step .prompt { margin-top: 4px; font: 12px/1.4 var(--mono); color: var(--ink); }
+
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.stat { padding: 12px; border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
+.stat b { display: block; font: 600 24px/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--ink-3); }
+
+/* Activity log: collapsed to its latest line; open for the full record. */
+.log { padding: 0; }
+.log summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 14px 20px; }
+.log summary::-webkit-details-marker { display: none; }
+.log summary .latest { flex: 1; min-width: 0; color: var(--ink-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log summary .chev { transition: transform .2s; color: var(--ink-3); }
+.log[open] summary .chev { transform: rotate(180deg); }
+.log .lines { max-height: 320px; overflow: auto; padding: 0 20px 16px; font: 12px/1.6 var(--mono); color: var(--ink-2); border-top: 1px solid var(--line); }
+.log .lines div { padding: 2px 0; } .log .lines .err { color: var(--red); }
+.log .lines time { color: var(--ink-3); margin-right: 8px; }
 </style>
 
-<header>
-  <h1>Dream Chess</h1>
-  <span id="mode" class="badge sim">simulation</span>
-  <span class="meta">Model: <b id="model">-</b> · Engine: <b id="engine">-</b></span>
-  <div class="stats">
-    <span><b id="s-moves">0</b><small>robot moves</small></span>
-    <span><b id="s-attempts">0</b><small>Dream-1 attempts</small></span>
-    <span><b id="s-fixes">0</b><small>fixes</small></span>
-    <span><b id="s-help">0</b><small>rescues</small></span>
+<header class="bar">
+  <div class="brand"><span class="logo" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2a4 4 0 0 1 2.5 7.1L16 14H8l1.5-4.9A4 4 0 0 1 12 2Zm-5 14h10l1 3H6l1-3Zm-2 4h14v2H5v-2Z"/></svg>
+  </span>Dream Chess</div>
+  <div class="chips">
+    <span class="chip" id="mode">Connecting</span>
+    <span class="chip">Brain <b id="model">Dream-1</b></span>
+    <span class="chip">Engine <b id="engine">starting</b></span>
   </div>
   <span class="spacer"></span>
-  <button id="newgame" type="button" hidden>New game</button>
-  <button id="stoparms" class="danger" type="button" hidden>Stop the arms</button>
+  <button class="btn" id="newgame" type="button" hidden>New game</button>
+  <button class="btn danger" id="stoparms" type="button" hidden>Stop the arms</button>
 </header>
 
-<main>
-  <div id="banner" class="banner" hidden></div>
+<main class="wrap">
+  <div class="banner" id="banner" role="status" hidden></div>
 
-  <section aria-label="Board">
-    <h2>The game</h2>
-    <div class="side"><span>Robot (brown)</span><span id="turn"></span></div>
-    <div class="board" id="board" role="grid" aria-label="Chess board, white at the bottom"></div>
-    <div class="side"><span>You (white)</span><span id="checkflag"></span></div>
-    <div class="mini">
-      <h2>What the robot sees</h2>
-      <div class="board" id="seen" aria-label="Occupied squares as the robot sees them"></div>
-      <div class="legend">Dashed red: a piece should be here but isn't. Red fill: a piece is here that shouldn't be.</div>
+  <section class="card" aria-labelledby="loop-h">
+    <div class="row"><div><h2 id="loop-h">How the agent plays</h2>
+      <p class="sub" style="margin-bottom:8px">One loop per move. The agent decides; Dream-1 moves the pieces; the camera checks the result.</p></div>
+      <span class="status wait" id="loopstate">Waiting</span></div>
+    <div class="loop" id="loop">
+      <div class="node" data-n="eyes"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></div>
+        <div class="t">Eyes</div><div class="d">Camera reads the board</div></div>
+      <div class="node" data-n="agent"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></div>
+        <div class="t">Agent</div><div class="d">Runs the loop, keeps the game</div></div>
+      <div class="node" data-n="engine"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M7 16l2-9 3 3 3-3 2 9"/></svg></div>
+        <div class="t">Stockfish</div><div class="d">What and where to move</div></div>
+      <div class="node brain" data-n="brain"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3.2"/></svg></div>
+        <div class="t">Dream-1</div><div class="d">The robot's brain, via DreamAPI</div></div>
+      <div class="node" data-n="arms"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h6M7 20v-6l5-5 4 2M16 11l3-3M16 11l2 3"/><circle cx="7" cy="14" r="1.5"/><circle cx="12" cy="9" r="1.5"/></svg></div>
+        <div class="t">Arms</div><div class="d">Two YAM arms move it</div></div>
+      <div class="node" data-n="check"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 5 5 9-10"/></svg></div>
+        <div class="t">Check</div><div class="d">Did the piece land?</div></div>
     </div>
   </section>
 
-  <section aria-label="Pipeline">
-    <h2>How the robot thinks</h2>
-    <div class="pipeline" id="pipeline"></div>
-  </section>
+  <div class="stats" aria-label="Game statistics">
+    <div class="stat"><b id="s-moves">0</b><span>Robot moves</span></div>
+    <div class="stat"><b id="s-attempts">0</b><span>Dream-1 calls</span></div>
+    <div class="stat"><b id="s-fixes">0</b><span>Self-corrections</span></div>
+    <div class="stat"><b id="s-help">0</b><span>Human rescues</span></div>
+  </div>
 
-  <section aria-label="Conversation">
-    <h2>Your turn</h2>
-    <div class="ask" id="ask">
-      <div class="q" id="askq">Starting...</div>
-      <div class="row" id="askrow"></div>
-      <div class="hint" id="askhint"></div>
+  <div class="grid">
+    <!-- The robot's eyes -->
+    <section class="card col-card" aria-labelledby="eyes-h">
+      <div class="row"><h2 id="eyes-h">The robot's eyes</h2>
+        <div class="seg" role="group" aria-label="Camera view" id="camseg"></div></div>
+      <p class="sub" id="eyes-sub">The top camera, seen from the robot's side of the board.</p>
+      <div class="cam"><img id="cam" alt="The robot's camera view of the board" hidden>
+        <div class="empty" id="camempty">Starting the camera...</div><span class="tag" id="camtag"></span></div>
+      <div class="flow" id="flow">
+        <div><b>1. Capture</b>A frame from the camera above the board.</div>
+        <div><b>2. Locate</b>Find the 64 squares from calibration.</div>
+        <div><b>3. Classify</b>Each square: empty, white, or brown.</div>
+      </div>
+      <div class="detect">
+        <div><div class="eyebrow" style="margin-bottom:8px" id="detected-h">What it detected</div><div class="board mini" id="seen"></div></div>
+        <div class="legend">
+          <span class="status wait" id="agree">Calibrating</span>
+          <span id="agree-why" style="font-size:13px"></span>
+          <span><i style="background:var(--ivory);border:1px solid #2b2118"></i>White piece</span>
+          <span><i style="background:var(--brown)"></i>Brown piece</span>
+          <span><i style="box-shadow:inset 0 0 0 2px var(--red)"></i>Should be a piece here</span>
+          <span><i style="background:color-mix(in srgb,var(--amber) 40%,transparent);box-shadow:inset 0 0 0 2px var(--amber)"></i>Unexpected piece</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- The game -->
+    <section class="card" aria-labelledby="board-h">
+      <div class="boardhead"><h2 id="board-h">The game</h2>
+        <span><span class="turn" id="turn"></span> <span class="incheck" id="checkflag"></span></span></div>
+      <div class="side"><span>Robot · Brown</span><span id="robotmove"></span></div>
+      <div class="board" id="board"></div>
+      <div class="side"><span>You · White</span><span id="lastmove"></span></div>
+      <div class="ask" id="ask" aria-live="polite">
+        <div class="q" id="askq">Starting...</div>
+        <div class="hint" id="askhint"></div>
+        <div class="row" id="askrow"></div>
+      </div>
+    </section>
+
+    <!-- The brain -->
+    <div class="col brain-col">
+      <section class="card brain-card" aria-labelledby="brain-h">
+        <div class="brainhead"><span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3.2"/></svg></span>
+          <div><h2 id="brain-h">The robot's brain</h2><div class="sub" style="margin:0">Dream-1 via DreamAPI · <span id="brainmodel"></span></div></div>
+          <span class="status wait state" id="brainstate">Idle</span></div>
+        <div class="instr"><div class="eyebrow">Instruction from the agent</div>
+          <div class="text none" id="instr">Waiting for the agent's first instruction.</div></div>
+        <div class="kv">
+          <div><span>Arm</span><b id="b-arm">–</b></div>
+          <div><span>Attempt</span><b id="b-attempt">–</b></div>
+          <div><span>Last run</span><b id="b-secs">–</b></div>
+          <div data-live><span>Round trip</span><b id="b-rtt">–</b></div>
+          <div data-live><span>Inference</span><b id="b-infer">–</b></div>
+          <div data-live><span>Action chunks</span><b id="b-chunks">–</b></div>
+        </div>
+        <p class="explain" id="brainexplain">Dream-1 is a vision-language-action model. It knows nothing about chess:
+          each step, it gets the three camera views and one plain sentence, and streams motion to both arms
+          at 20 Hz. The agent decides what to say; Dream-1 decides how to move.</p>
+      </section>
+
+      <section class="card" aria-labelledby="steps-h">
+        <h2 id="steps-h">This move, step by step</h2>
+        <ol class="steps" id="steps"></ol>
+      </section>
     </div>
-    <h2 style="margin-top:16px">Activity</h2>
-    <div class="log" id="log" aria-live="polite"></div>
-  </section>
+  </div>
+
+  <details class="card log" id="logbox">
+    <summary><span class="eyebrow">Activity</span><span class="latest" id="latest">Nothing yet.</span>
+      <span class="eyebrow" id="logcount">0</span>
+      <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg></summary>
+    <div class="lines" id="log"></div>
+  </details>
 </main>
 
 <script>
 const $ = id => document.getElementById(id);
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const score = cp => Math.abs(cp) >= 90000 ? (cp > 0 ? "a forced mate" : "being mated") : `${cp >= 0 ? "+" : ""}${(cp / 100).toFixed(2)} pawns`;
+
+// --- the pipeline, step by step, and the loop diagram it lights up -------------------------------------------
 const STAGES = [
-  ["opponent", "1. Your move", "The camera reads which legal move you made"],
-  ["what", "2. What: pick the piece", "Stockfish scores every legal move"],
-  ["where", "3. Where: pick the square", "The move, split into physical steps"],
-  ["how", "4. How: Dream-1 moves it", "One plain sentence per step, sent to the station"],
-  ["check", "5. Check: did it work?", "Compare the board with what it should be"],
-  ["record", "6. Record the move", "The game only advances once every step is confirmed"],
+  ["opponent", "Your move", "eyes", "camera"],
+  ["what", "What", "engine", "Stockfish"],
+  ["where", "Where", "engine", "Stockfish"],
+  ["how", "How", "brain", "Dream-1"],
+  ["check", "Check", "check", "camera"],
+  ["record", "Record", "agent", "agent"],
 ];
 const stage = {};
-for (const [id, name, what] of STAGES) {
-  const el = document.createElement("div");
-  el.className = "stage"; el.innerHTML = `<div class="head"><span class="name"></span><span class="chip">waiting</span></div><div class="what"></div><div class="detail"></div>`;
-  el.querySelector(".name").textContent = name; el.querySelector(".what").textContent = what;
-  $("pipeline").append(el);
-  stage[id] = { el, chip: el.querySelector(".chip"), detail: el.querySelector(".detail") };
-}
+STAGES.forEach(([id, name, node, who], i) => {
+  const li = document.createElement("li"); li.className = "step " + id;
+  li.innerHTML = `<span class="n">${i + 1}</span><div class="nm"></div><div class="dt"></div>`;
+  li.querySelector(".nm").innerHTML = `${esc(name)}<small>${esc(who)}</small>`;
+  $("steps").append(li);
+  stage[id] = { el: li, detail: li.querySelector(".dt"), node, status: "" };
+});
 function setStage(id, status, html) {
-  const s = stage[id]; s.el.className = "stage" + (status ? " " + status : "");
-  s.chip.textContent = { active: "working", done: "done", failed: "failed", "": "waiting" }[status || ""] || status;
+  const s = stage[id]; s.status = status || "";
+  s.el.className = "step " + id + (status ? " " + status : "");
   if (html !== undefined) s.detail.innerHTML = html;
+  lightLoop();
 }
-// The record card keeps showing the last move recorded until the next one replaces it.
+function lightLoop() {
+  const on = new Set();
+  for (const s of Object.values(stage)) if (s.status === "active") on.add(s.node);
+  if (on.has("brain")) on.add("arms");
+  if (running) on.add("agent");
+  document.querySelectorAll(".node").forEach(n => n.classList.toggle("on", on.has(n.dataset.n)));
+  const active = STAGES.find(([id]) => stage[id].status === "active");
+  $("loopstate").textContent = active ? `Now: ${active[1]}` : (running ? "Thinking" : "Idle");
+  $("loopstate").className = "status " + (active ? "ok" : "wait");
+}
+// The record step keeps showing the last move recorded until the next one replaces it.
 function resetRobotStages() { for (const id of ["what", "where", "how", "check"]) setStage(id, "", ""); }
-const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const score = cp => Math.abs(cp) >= 90000 ? (cp > 0 ? "forced mate" : "being mated") : `${cp >= 0 ? "+" : ""}${(cp / 100).toFixed(2)} pawns`;
 
-let since = 0, game = null, attempts = 0, fixes = 0, rescues = 0, moves = 0, maxAttempts = 6;
-let awaitingCheck = false, robotMove = "", highlight = { from: null, to: null }, stepCount = 0;
+let since = 0, game = null, attempts = 0, fixes = 0, rescues = 0, moves = 0, running = false;
+let awaitingCheck = false, robotMove = "", highlight = { from: null, to: null }, logCount = 0;
 
 function log(text, cls) {
-  const d = document.createElement("div"); d.textContent = text; if (cls) d.className = cls;
-  $("log").prepend(d);
+  const d = document.createElement("div"); if (cls) d.className = cls;
+  const t = document.createElement("time"); t.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  d.append(t, document.createTextNode(text)); $("log").prepend(d);
+  $("latest").textContent = text; $("logcount").textContent = ++logCount;
 }
+function clearLog() { $("log").innerHTML = ""; logCount = 0; $("logcount").textContent = "0"; $("latest").textContent = "Nothing yet."; }
 function checkPassed() {
   if (!awaitingCheck) return;
   awaitingCheck = false;
-  setStage("check", "done", "The board matches what it should be after this step.");
+  setStage("check", "done", "The board matches the plan after this step.");
 }
 function handle(e) {
-  if (e.game !== game) { game = e.game; attempts = fixes = rescues = moves = 0; robotMove = ""; resetRobotStages(); setStage("opponent", "", ""); setStage("record", "", ""); $("log").innerHTML = ""; }
+  if (e.game !== game) { game = e.game; attempts = fixes = rescues = moves = 0; robotMove = ""; resetRobotStages();
+    setStage("opponent", "", ""); setStage("record", "", ""); clearLog(); }
   // A step passed its check when the next real event isn't a failure report. Status lines ("say") and the
   // person's answers come before a failure report, so they don't count.
   const failureNext = e.type === "agent" && /^(CHECK|HELP)/.test(e.text);
   if (awaitingCheck && !failureNext && !["attempt", "say", "attempt_result", "help"].includes(e.type)) checkPassed();
   if (e.type === "say") log(e.text);
-  if (e.type === "error") { log(e.text, "err"); $("banner").textContent = e.text; $("banner").hidden = false; }
-  if (e.type === "game_start") { $("engine").textContent = e.engine; }
+  if (e.type === "agent") log(e.text);
+  if (e.type === "error") { log(e.text, "err"); $("banner").textContent = e.text; $("banner").className = "banner"; $("banner").hidden = false; }
+  if (e.type === "game_start") $("engine").textContent = e.engine;
   if (e.type === "opponent_move") setStage("opponent", "done", `You played <b>${esc(e.san)}</b>.`);
   if (e.type === "agent") {
     const [kind, ...rest] = e.text.split(/\s+/); const body = rest.join(" ");
     if (kind === "SEEN") {
       const san = body.replace(/^opponent played /, "");
       setStage("opponent", "done", `The camera confirms you played <b>${esc(san)}</b>.`);
-      if (robotMove) { moves++; setStage("record", "done", `Recorded the robot's <b>${esc(robotMove)}</b>, then waited for your move.`); robotMove = ""; }
-      resetRobotStages(); setStage("what", "active", "Thinking...");
+      if (robotMove) { moves++; setStage("record", "done", `Recorded the robot's <b>${esc(robotMove)}</b>.`); robotMove = ""; }
+      resetRobotStages(); setStage("what", "active", "Stockfish is scoring every legal move...");
     } else if (kind === "WHAT") {
       const m = body.match(/(\w+) on (\w\d) \(best ([+-]\d+) cp, (\d+) neighbors, (\d+) alternatives\)/);
-      resetRobotStages(); stepCount = 0;
-      setStage("what", "done", m ? `Move the <b>${m[1]} on ${m[2]}</b>. Its best move scores <b>${score(+m[3])}</b>.` +
-        ` ${m[4]} occupied squares around it.` : esc(body));
+      resetRobotStages();
+      setStage("what", "done", m ? `The <b>${m[1]} on ${m[2]}</b>. Best line: <b>${score(+m[3])}</b>.` : esc(body));
       setStage("where", "active", "Choosing the square...");
     } else if (kind === "WHERE") {
       const m = body.match(/(\S+) \(([+-]\d+) cp, risk (\d+)\)/);
       robotMove = m ? m[1] : body;
-      setStage("where", "done", m ? `Play <b>${esc(m[1])}</b> (${score(+m[2])}). Next, each physical step goes to Dream-1.` : esc(body));
+      setStage("where", "done", m ? `Play <b>${esc(m[1])}</b>, then split it into physical steps.` : esc(body));
     } else if (kind === "HOW") {
       const m = body.match(/\[(\d+)\/(\d+)\] (.*)/);
       if (m) {
-        maxAttempts = +m[2]; stepCount++;
         const sq = (m[3].match(/\b[a-h][1-8]\b/g) || []);
         highlight = { from: sq[0] || null, to: sq[1] || null };
-        const arm = (m[3].match(/your (left|right) arm/) || [])[1] || "";
-        const fix = /brown piece|white piece/.test(m[3]) && +m[1] > 1;
-        setStage("how", "active", `${fix ? "Fix" : "Step"} attempt <b>${m[1]} of ${m[2]}</b>, ${arm} arm.<div class="prompt">${esc(m[3])}</div>`);
+        const fix = +m[1] > 1;
+        setStage("how", "active", `${fix ? "Retry" : "Sent to Dream-1"}, attempt ${m[1]} of ${m[2]}.<div class="prompt">“${esc(m[3])}”</div>`);
         setStage("check", "", "");
       }
     } else if (kind === "CHECK") {
@@ -222,15 +416,15 @@ function handle(e) {
       const extra = (body.match(/extra=\[(.*?)\]/) || [, ""])[1].match(/[a-h][1-8]/g) || [];
       awaitingCheck = false; fixes++;
       setStage("check", "failed", `Not right: ${miss.length ? "expected a piece on <b>" + miss.join(", ") + "</b>" : ""}` +
-        `${miss.length && extra.length ? " and " : ""}${extra.length ? "found one on <b>" + extra.join(", ") + "</b>" : ""}. Sending a fix.`);
+        `${miss.length && extra.length ? " and " : ""}${extra.length ? "found one on <b>" + extra.join(", ") + "</b>" : ""}. Asking Dream-1 to fix it.`);
     } else if (kind === "HELP") {
       awaitingCheck = false; rescues++;
-      setStage("check", "failed", `Needs a person: ${esc(body)}`);
+      setStage("check", "failed", "Needs a person to fix the board.");
     }
   }
   if (e.type === "attempt") {
     attempts++;
-    setStage("how", "done", stage.how.detail.innerHTML + `<div class="hint">Attempt finished in ${e.seconds}s.</div>`);
+    setStage("how", "done", stage.how.detail.innerHTML.replace(/^(Sent to Dream-1|Retry)/, "Done") + "");
     setStage("check", "active", "Comparing the board with the plan...");
     awaitingCheck = true;
   }
@@ -243,50 +437,139 @@ function handle(e) {
     const text = `Game over: ${e.ending}${e.result ? ", result " + e.result : ""}.`;
     log(text);
     $("banner").textContent = text; $("banner").className = "banner end"; $("banner").hidden = false;
-    if (robotMove) setStage("record", "done", `Recorded <b>${esc(robotMove)}</b>. ${esc(text)}`);
+    if (robotMove) setStage("record", "done", `Recorded <b>${esc(robotMove)}</b>.`);
   }
 }
 
 // --- boards -------------------------------------------------------------------------------------------------
-const FILES = "abcdefgh";
+const FILES = "abcdefgh", GLYPH = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const squares = {}, seenSquares = {};
 function buildBoard(el, store, mini) {
   for (let r = 8; r >= 1; r--) for (let f = 0; f < 8; f++) {
     const name = FILES[f] + r, sq = document.createElement("div");
     sq.className = "sq " + ((f + r) % 2 === 1 ? "l" : "d"); sq.dataset.sq = name;
-    if (!mini && (f === 0)) { const c = document.createElement("span"); c.className = "coord"; c.textContent = r; sq.append(c); }
-    if (!mini && r === 1) { const c = document.createElement("span"); c.className = "coord"; c.style.left = "auto"; c.style.right = "3px"; c.textContent = FILES[f]; sq.append(c); }
+    if (!mini && f === 0) { const c = document.createElement("span"); c.className = "coord rk"; c.textContent = r; sq.append(c); }
+    if (!mini && r === 1) { const c = document.createElement("span"); c.className = "coord fl"; c.textContent = FILES[f]; sq.append(c); }
     el.append(sq); store[name] = sq;
   }
 }
 buildBoard($("board"), squares, false); buildBoard($("seen"), seenSquares, true);
 function parseFen(fen) {
-  const out = {}; const rows = fen.split(" ")[0].split("/");
-  rows.forEach((row, i) => { let f = 0; for (const ch of row) { if (/\d/.test(ch)) f += +ch; else { out[FILES[f] + (8 - i)] = ch; f++; } } });
+  const out = {}; fen.split(" ")[0].split("/").forEach((row, i) => {
+    let f = 0; for (const ch of row) { if (/\d/.test(ch)) f += +ch; else { out[FILES[f] + (8 - i)] = ch; f++; } }
+  });
   return out;
 }
-function drawBoards(st) {
+const colorOf = p => p ? (p === p.toUpperCase() ? "w" : "b") : null;
+function drawBoard(st) {
   const pieces = st.fen ? parseFen(st.fen) : {};
+  const moving = stage.how.status === "active";
   for (const [name, sq] of Object.entries(squares)) {
-    sq.querySelectorAll(".piece").forEach(p => p.remove());
+    sq.querySelectorAll(".pc").forEach(p => p.remove());
     const p = pieces[name];
-    if (p) { const d = document.createElement("div"); d.className = "piece " + (p === p.toUpperCase() ? "w" : "b"); d.textContent = p.toUpperCase(); sq.append(d); }
+    if (p) { const d = document.createElement("span"); d.className = "pc " + colorOf(p); d.textContent = GLYPH[p.toLowerCase()]; sq.append(d); }
     sq.classList.toggle("last", !!st.last_move && (st.last_move.slice(0, 2) === name || st.last_move.slice(2, 4) === name));
-    sq.classList.toggle("from", highlight.from === name && stage.how.el.classList.contains("active"));
-    sq.classList.toggle("to", highlight.to === name && stage.how.el.classList.contains("active"));
+    sq.classList.toggle("from", moving && highlight.from === name);
+    sq.classList.toggle("to", moving && highlight.to === name);
     sq.classList.toggle("pick", picked === name);
     sq.classList.toggle("click", askKind === "move");
   }
-  const mismatch = new Set(st.mismatch || []);
-  for (const [name, sq] of Object.entries(seenSquares)) {
-    sq.innerHTML = ""; const c = (st.physical || {})[name];
-    if (c) { const d = document.createElement("div"); d.className = "dot " + c; sq.append(d); }
-    const wanted = pieces[name] ? (pieces[name] === pieces[name].toUpperCase() ? "w" : "b") : null;
-    sq.classList.toggle("miss", mismatch.has(name) && !!wanted && c !== wanted);
-    sq.classList.toggle("extra", mismatch.has(name) && !!c && c !== wanted);
-  }
-  $("turn").textContent = st.turn ? `${st.turn === "white" ? "Your" : "Robot's"} turn` : "";
+  $("turn").textContent = st.turn ? (st.turn === "white" ? "Your turn" : "Robot's turn") : "";
   $("checkflag").textContent = st.check ? "Check!" : "";
+  $("lastmove").textContent = st.last_move ? `Last move ${st.last_move}` : "";
+  $("robotmove").textContent = moving && highlight.from ? `Moving ${highlight.from} → ${highlight.to || "tray"}` : "";
+}
+function drawDetected(st, detected) {
+  const pieces = st.fen ? parseFen(st.fen) : {};
+  for (const [name, sq] of Object.entries(seenSquares)) {
+    sq.innerHTML = ""; const c = detected[name];
+    if (c) { const d = document.createElement("div"); d.className = "dot " + c; sq.append(d); }
+    const want = colorOf(pieces[name]);
+    sq.classList.toggle("miss", !!st.fen && !!want && c !== want);
+    sq.classList.toggle("extra", !!st.fen && !!c && c !== want);
+  }
+}
+
+// --- the robot's eyes ---------------------------------------------------------------------------------------
+let camView = "grid", camRole = "top", visionKey = null, liveMode = false;
+function segment(options, current, onPick) {
+  const seg = $("camseg"); seg.innerHTML = "";
+  for (const [value, label] of options) {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = label;
+    b.setAttribute("aria-pressed", String(value === current)); b.onclick = () => onPick(value); seg.append(b);
+  }
+}
+function setupEyes(live) {
+  liveMode = live;
+  if (live) {
+    segment([["top", "Top"], ["left", "Left wrist"], ["right", "Right wrist"]], camRole, v => { camRole = v; setupEyes(true); loadCamera(true); });
+    $("eyes-sub").textContent = "The frames the station hands Dream-1, refreshed during every move.";
+    $("detected-h").textContent = "The board, as confirmed";
+  } else {
+    segment([["grid", "What it detects"], ["raw", "Camera"]], camView, v => { camView = v; setupEyes(false); loadCamera(true); });
+    $("eyes-sub").textContent = "A simulated top camera, from the robot's side. The real vision code reads every frame.";
+  }
+}
+function showFrame(url, tag) {
+  const pre = new Image();
+  pre.onload = () => { $("cam").src = url; $("cam").classList.toggle("zoom", !liveMode); $("cam").hidden = false; $("camempty").hidden = true; $("camtag").innerHTML = tag; };
+  pre.onerror = () => { $("cam").hidden = true; $("camempty").hidden = false;
+    $("camempty").textContent = liveMode ? "No frames yet. Dream-1's camera frames appear here while the arms move." : "The camera is starting..."; };
+  pre.src = url;
+}
+function loadCamera(force) {
+  if (liveMode) { showFrame(`/camera/${camRole}.jpg?t=${Date.now()}`, `<span class="live-dot"></span>${camRole.toUpperCase()} · as sent to Dream-1`); return; }
+  const key = `${lastState.fen}|${JSON.stringify(lastState.physical || {})}`;
+  if (!force && key === visionKey) return;
+  visionKey = key;
+  const tag = camView === "grid" ? "Detected squares and pieces" : "Raw camera frame";
+  showFrame(`/camera/top.jpg?${camView === "grid" ? "grid=1&" : ""}k=${encodeURIComponent(key).slice(0, 300)}&n=${Date.now() % 1e6}`, tag);
+  readVision();
+}
+async function readVision() {
+  try {
+    const v = await (await fetch("/vision", { cache: "no-store" })).json();
+    const a = $("agree");
+    if (v.source === "person") {
+      drawDetected(lastState, v.detected || {});
+      a.className = "status ok"; a.textContent = "Confirmed by a person";
+      $("agree-why").textContent = "Until the station shares its camera, the person at the board confirms each step.";
+      return;
+    }
+    if (v.error) { a.className = "status bad"; a.textContent = "Camera error"; $("agree-why").textContent = v.error; return; }
+    if (!v.ready) { a.className = "status wait"; a.textContent = "Calibrating"; $("agree-why").textContent = "Learning the empty board and the starting position."; setTimeout(() => loadCamera(true), 1500); return; }
+    drawDetected(lastState, v.detected || {});
+    const pieces = lastState.fen ? parseFen(lastState.fen) : {};
+    const off = Object.keys(seenSquares).filter(n => colorOf(pieces[n]) !== ((v.detected || {})[n] || null));
+    if (!off.length) { a.className = "status ok"; a.textContent = "Matches the game"; $("agree-why").textContent = "Every square agrees with the board the agent expects."; }
+    else { a.className = "status bad"; a.textContent = `${off.length} square${off.length > 1 ? "s" : ""} differ`; $("agree-why").textContent = `Off on ${off.slice(0, 6).join(", ")}. The check step catches this and asks Dream-1 to fix it.`; }
+  } catch (err) { /* the next board change tries again */ }
+}
+
+// --- the robot's brain --------------------------------------------------------------------------------------
+async function readBrain() {
+  try {
+    const b = await (await fetch("/brain", { cache: "no-store" })).json();
+    $("brainmodel").textContent = b.simulated ? "simulated for rehearsal" : b.model; $("model").textContent = b.model;
+    const st = $("brainstate"), moving = b.state === "moving";
+    let label = moving ? "Moving the arms" : "Idle";
+    if (b.station) {
+      if (!b.station.reachable) label = "Station offline";
+      else if (b.station.state && b.station.state !== "idle") label = `Station: ${b.station.state}`;
+    }
+    st.textContent = label; st.className = "status state " + (moving || (b.station && b.station.state === "running") ? "moving" : (b.station && !b.station.reachable ? "bad" : "wait"));
+    const instr = $("instr");
+    if (b.prompt) { instr.textContent = `“${b.prompt}”`; instr.className = "text"; }
+    $("b-arm").textContent = b.arm ? b.arm[0].toUpperCase() + b.arm.slice(1) : "–";
+    $("b-attempt").textContent = b.attempt || "–";
+    $("b-secs").textContent = b.last_seconds != null ? `${b.last_seconds}s` : "–";
+    const s = b.station || {};
+    document.querySelectorAll("[data-live]").forEach(el => el.hidden = b.simulated);
+    $("b-rtt").textContent = s.p50_ms != null ? `${Math.round(s.p50_ms)} ms` : (s.last_rtt_ms != null ? `${Math.round(s.last_rtt_ms)} ms` : "–");
+    $("b-infer").textContent = s.serve_infer_ms != null ? `${Math.round(s.serve_infer_ms)} ms` : "–";
+    $("b-chunks").textContent = s.chunks != null ? s.chunks : "–";
+  } catch (err) { /* try again on the next tick */ }
+  setTimeout(readBrain, 1000);
 }
 
 // --- questions ----------------------------------------------------------------------------------------------
@@ -298,20 +581,19 @@ async function post(path, body) {
 async function answer(text) {
   if (askId === null) return;
   const id = askId; askId = null; picked = null;
-  $("askrow").innerHTML = ""; $("askq").textContent = "Sent."; $("ask").classList.remove("on");
+  $("askrow").innerHTML = ""; $("askq").textContent = "Sent."; $("askhint").textContent = ""; $("ask").classList.remove("on");
   await post("/answer", { id, text });
 }
-function button(label, text, cls) { const b = document.createElement("button"); b.type = "button"; b.textContent = label; if (cls) b.className = cls; b.onclick = () => answer(text); return b; }
+function button(label, text, cls) { const b = document.createElement("button"); b.type = "button"; b.className = "btn " + (cls || ""); b.textContent = label; b.onclick = () => answer(text); return b; }
 function input(placeholder, submitLabel) {
-  const i = document.createElement("input"); i.placeholder = placeholder; i.id = "answerbox";
+  const i = document.createElement("input"); i.placeholder = placeholder; i.id = "answerbox"; i.setAttribute("aria-label", placeholder || "Answer");
   i.addEventListener("keydown", ev => { if (ev.key === "Enter") answer(i.value.trim()); });
-  const b = document.createElement("button"); b.className = "primary"; b.type = "button"; b.textContent = submitLabel; b.onclick = () => answer(i.value.trim());
+  const b = document.createElement("button"); b.className = "btn primary"; b.type = "button"; b.textContent = submitLabel; b.onclick = () => answer(i.value.trim());
   return [i, b];
 }
 function showQuestion(p, st) {
   if (!p) {
-    askId = null; askKind = null; $("ask").classList.remove("on"); $("askrow").innerHTML = "";
-    $("askhint").textContent = "";
+    askId = null; askKind = null; $("ask").classList.remove("on"); $("askrow").innerHTML = ""; $("askhint").textContent = "";
     $("askq").textContent = st.running ? (st.auto_opponent ? "Watching: a simulated opponent plays White." : "The robot is working...") :
       (st.summary ? "The game has ended." : "Starting...");
     return;
@@ -320,51 +602,50 @@ function showQuestion(p, st) {
   askId = p.id; askKind = p.kind; picked = null;
   $("ask").classList.add("on"); $("askq").textContent = p.prompt.replace(/\s+/g, " "); $("askhint").textContent = "";
   const row = $("askrow"); row.innerHTML = "";
-  if (p.kind === "move") { row.append(...input("e4, Nf3 or e2e4", "Play")); row.append(button("Quit", "quit")); $("askhint").textContent = "Make the move on the real board, then type it here, or click a white piece and then its square."; }
+  if (p.kind === "move") { row.append(...input("e4, Nf3 or e2e4", "Play")); row.append(button("Quit", "quit")); $("askhint").textContent = "Make the move on the real board, then type it, or tap a white piece and then its square."; }
   else if (p.kind === "yesno") { row.append(button("Yes, it landed", "y", "primary"), button("No", "n")); }
-  else if (p.kind === "confirm") { row.append(button("Yes: a hand is on the e-stop", "yes", "danger"), button("Not yet", "no")); }
+  else if (p.kind === "confirm") { row.append(button("Yes, a hand is on the e-stop", "yes", "danger"), button("Not yet", "no")); }
   else if (p.kind === "continue") { row.append(button("Done", "", "primary")); }
   else if (p.kind === "bumps") { row.append(button("Nothing else moved", "", "primary")); row.append(...input("e.g. e4 e3", "Report")); $("askhint").textContent = "Type the square it was on, then where it is now."; }
   else if (p.kind === "where") { row.append(...input("square, e.g. f5", "Send")); row.append(button("Didn't move", "same"), button("In the tray", "tray"), button("Off the board", "gone")); }
   else { row.append(...input("", "Send")); }
-  const box = $("answerbox"); if (box) box.focus();
+  const box = $("answerbox"); if (box) box.focus({ preventScroll: true });
 }
 $("board").addEventListener("click", ev => {
   if (askKind !== "move") return;
   const sq = ev.target.closest(".sq"); if (!sq) return;
   const name = sq.dataset.sq;
-  if (!picked) { picked = name; }
-  else if (picked === name) { picked = null; }
+  if (!picked) picked = name; else if (picked === name) picked = null;
   else { const box = $("answerbox"); if (box) box.value = picked + name; picked = null; }
-  drawBoards(lastState);
+  drawBoard(lastState);
 });
-$("newgame").onclick = async () => { $("banner").hidden = true; $("banner").className = "banner"; await post("/new"); };
+$("newgame").onclick = async () => { $("banner").hidden = true; await post("/new"); };
 $("stoparms").onclick = async () => { const r = await post("/stop"); log(r.message || "Stop sent."); };
 
-let lastState = {}, bootId = null;
+let lastState = {}, bootId = null, eyesSetUp = null, liveTick = 0;
 async function tick() {
   try {
     const st = await (await fetch(`/state?since=${since}`, { cache: "no-store" })).json();
     if (st.reset || (bootId && st.boot !== bootId)) {  // the app restarted: start the page over
-      bootId = st.boot; since = 0; game = null; $("log").innerHTML = ""; $("banner").hidden = true;
+      bootId = st.boot; since = 0; game = null; clearLog(); $("banner").hidden = true; visionKey = null;
       setTimeout(tick, 50); return;
     }
-    bootId = st.boot;
-    lastState = st; since = st.next;
+    bootId = st.boot; lastState = st; since = st.next; running = st.running;
     for (const e of st.events) handle(e);
-    $("mode").textContent = st.mode; $("mode").className = "badge " + (st.mode === "simulation" ? "sim" : "live");
-    $("model").textContent = st.checkpoint; $("stoparms").hidden = st.mode === "simulation";
-    $("newgame").hidden = st.running;
-    $("s-moves").textContent = moves;
-    $("s-attempts").textContent = attempts; $("s-fixes").textContent = fixes; $("s-help").textContent = rescues;
+    const sim = st.mode === "simulation";
+    if (eyesSetUp !== sim) { eyesSetUp = sim; setupEyes(!sim); }
+    $("mode").textContent = sim ? "Simulation" : "Live robot"; $("mode").className = "chip " + (sim ? "sim" : "live");
+    $("stoparms").hidden = sim; $("newgame").hidden = st.running;
+    $("s-moves").textContent = moves; $("s-attempts").textContent = attempts; $("s-fixes").textContent = fixes; $("s-help").textContent = rescues;
     if (st.pending && st.pending.kind === "move") setStage("opponent", "active", "Waiting for your move.");
     showQuestion(st.pending, st);
-    drawBoards(st);
+    drawBoard(st); lightLoop();
+    if (!sim) { if (liveTick++ % 4 === 0) { loadCamera(true); readVision(); } }
+    else loadCamera(false);
   } catch (err) {
-    $("banner").textContent = "Lost the connection to the app. Is app.py still running?"; $("banner").hidden = false;
+    $("banner").textContent = "Lost the connection to the app. Is app.py still running?"; $("banner").className = "banner"; $("banner").hidden = false;
   }
   setTimeout(tick, 400);
 }
-tick();
+tick(); readBrain();
 </script>
-</html>

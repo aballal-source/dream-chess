@@ -22,6 +22,7 @@ from pathlib import Path
 import chess
 
 import run_robot
+from dreamchess.app_vision import ROLES, SimEyes, StationFrames, station_telemetry
 from dreamchess.core import occupancy
 from dreamchess.human_eyes import GameQuit
 
@@ -73,6 +74,12 @@ class Session:
         self.thread: threading.Thread | None = None
         self.summary: dict | None = None
         self.game_number = 0
+        # The robot's eyes: a simulated camera read by the real vision code, or the frames the station hands Dream-1.
+        self._eyes: SimEyes | None = None
+        self.frames = None if args.sim else StationFrames(getattr(args, "frames", "~/.dreamlabs/last-run_inputs"))
+        # What the agent last asked Dream-1 to do, from the game's own events (both modes).
+        self.dream: dict = {"state": "idle", "prompt": None, "arm": None, "attempt": None, "calls": 0,
+                            "last_seconds": None, "landed": None}
 
     # -- what the game thread calls --------------------------------------------------------------------------------
     def _publish(self) -> None:
@@ -104,7 +111,24 @@ class Session:
             self._add({"type": "say", "text": text.strip()})
         self._publish()
 
+    def _track_dream(self, event: dict) -> None:
+        kind, text = event.get("type"), event.get("text", "")
+        with self.lock:
+            if kind == "agent" and text.startswith("HOW"):
+                found = re.match(r"HOW\s+\[(\d+)/(\d+)\] (.*)", text)
+                prompt = found.group(3) if found else text[3:].strip()
+                arm = re.search(r"your (left|right) arm", prompt)
+                self.dream.update(state="moving", prompt=prompt, arm=arm.group(1) if arm else None,
+                                  attempt=f"{found.group(1)}/{found.group(2)}" if found else None, landed=None)
+            elif kind == "attempt":
+                self.dream.update(state="idle", last_seconds=event.get("seconds"), calls=self.dream["calls"] + 1)
+            elif kind == "attempt_result":
+                self.dream["landed"] = bool(event.get("landed"))
+            elif kind == "agent" and text.startswith("CHECK"):
+                self.dream["landed"] = False
+
     def on_event(self, event: dict) -> None:
+        self._track_dream(event)
         self._add(event)
         self._publish()
         if self.args.sim and self.args.pace and event.get("type") in PACED:
@@ -147,6 +171,8 @@ class Session:
             self.running, self.quitting, self.summary = True, False, None
             self.board, self.physical, self.snapshot = None, None, {}
             self.game_number += 1
+            self.dream.update(state="idle", prompt=None, arm=None, attempt=None, calls=0, last_seconds=None,
+                              landed=None)
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
         return True
@@ -192,6 +218,50 @@ class Session:
             self.lock.notify_all()
         if self.thread is not None:
             self.thread.join(timeout=wait_s)
+
+    # -- the robot's eyes and brain, for the page ----------------------------------------------------------------
+    def eyes(self) -> SimEyes:
+        with self.lock:
+            if self._eyes is None:  # started on first use: calibrating takes a few seconds
+                self._eyes = SimEyes(seed=self.args.seed)
+            return self._eyes
+
+    def camera(self, role: str, grid: bool) -> bytes | None:
+        """One camera frame. In a simulation, `grid` draws what the vision code detected on it."""
+        if role not in ROLES:
+            return None
+        if self.args.sim:
+            if role != "top":
+                return None
+            with self.lock:
+                snapshot = dict(self.snapshot)
+            view = self.eyes().view(snapshot.get("fen"), snapshot.get("physical") or {})
+            return view.get("overlay") if grid and view.get("overlay") else view["raw"]
+        found = self.frames.latest(role)
+        return found[0] if found else None
+
+    def vision(self) -> dict:
+        """How the top camera's frame became a board: what it detected on each square, and whether that agrees."""
+        with self.lock:
+            snapshot = dict(self.snapshot)
+        physical = snapshot.get("physical") or {}
+        if not self.args.sim:
+            ages = {role: found[1] for role in ROLES if (found := self.frames.latest(role))}
+            return {"source": "person", "ready": True, "detected": physical, "agrees": True,
+                    "frames": {role: round(time.time() - mtime, 1) for role, mtime in ages.items()}}
+        view = self.eyes().view(snapshot.get("fen"), physical)
+        return {"source": "camera", "ready": view["ready"], "error": view["error"],
+                "detected": view.get("detected", {}), "agrees": view.get("agrees")}
+
+    def brain(self) -> dict:
+        """Dream-1 at work: what the agent last asked it, plus the station's own status on the real robot."""
+        with self.lock:
+            dream = dict(self.dream)
+        model = self.args.checkpoint or ("Dream-1 (simulated)" if self.args.sim else "Dream-1 base")
+        out = {"model": model, "simulated": bool(self.args.sim), **dream}
+        if not self.args.sim:
+            out["station"] = station_telemetry(self.args.station)
+        return out
 
     def state(self, since: int) -> dict:
         with self.lock:
@@ -250,6 +320,15 @@ def make_server(session: Session, port: int) -> ThreadingHTTPServer:
             elif path == "/state":
                 found = re.search(r"since=(\d+)", query)
                 self._json(session.state(int(found.group(1)) if found else 0))
+            elif path == "/vision":
+                self._json(session.vision())
+            elif path == "/brain":
+                self._json(session.brain())
+            elif (found := re.fullmatch(r"/camera/(\w+)\.jpg", path)):
+                image = session.camera(found.group(1), "grid=1" in query)
+                if image is None:
+                    return self._send(404, b"no frame yet", "text/plain")
+                self._send(200, image, "image/jpeg")
             else:
                 self._send(404, b"not found", "text/plain")
 
@@ -293,6 +372,8 @@ def add_game_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--max-plies", type=int, default=None)
     parser.add_argument("--log-dir", default=str(run_robot.GAMES))
+    parser.add_argument("--frames", default="~/.dreamlabs/last-run_inputs",
+                        help="where the station saves the camera frames it hands Dream-1")
 
 
 def main() -> None:

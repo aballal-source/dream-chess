@@ -220,3 +220,65 @@ def test_the_page_only_sees_the_board_between_moves(tmp_path):
     board.pop()
     session.answer(state["pending"]["id"], "quit")
     wait_for(session, lambda s: not s["running"])
+
+
+# --- The robot's eyes and brain on the page ---
+
+def test_simulated_camera_shows_the_board_and_the_vision_reads_it(tmp_path):
+    session = app.Session(args(tmp_path))
+    server, port = serve(session)
+    try:
+        session.start()
+        wait_for(session, lambda s: s["fen"] is not None and s["pending"])
+        deadline = time.time() + 60
+        while not session.vision()["ready"] and time.time() < deadline:
+            time.sleep(0.2)
+        vision = json.loads(request(port, "/vision", f"localhost:{port}").read())
+        assert vision["source"] == "camera" and vision["agrees"] is True
+        assert vision["detected"] == session.state(0)["physical"]
+        for path in ("/camera/top.jpg", "/camera/top.jpg?grid=1"):
+            reply = request(port, path, f"localhost:{port}")
+            assert reply.headers["Content-Type"] == "image/jpeg" and reply.read()[:2] == b"\xff\xd8"
+        for path in ("/camera/left.jpg", "/camera/nope.jpg"):  # the simulation has only the top camera
+            with pytest.raises(urllib.error.HTTPError) as err:
+                request(port, path, f"localhost:{port}")
+            assert err.value.code == 404
+        with pytest.raises(urllib.error.HTTPError) as err:
+            request(port, "/camera/top.jpg", f"evil.example:{port}")
+        assert err.value.code == 403
+        session.answer(session.state(0)["pending"]["id"], "quit")
+        wait_for(session, lambda s: not s["running"])
+    finally:
+        server.shutdown()
+
+
+def test_the_brain_shows_what_the_agent_asked_dream_1(tmp_path):
+    session = app.Session(args(tmp_path))
+    session.start()
+    state = wait_for(session, lambda s: s["pending"] and s["pending"]["kind"] == "move")
+    assert session.brain()["prompt"] is None
+    session.answer(state["pending"]["id"], "Kg1")
+    wait_for(session, lambda s: not s["running"])
+    brain = session.brain()
+    assert brain["simulated"] and brain["calls"] >= 1 and brain["state"] == "idle"
+    assert "rook" in brain["prompt"] and brain["arm"] in ("left", "right")
+
+
+def test_live_page_shows_the_frames_dream_1_was_handed_and_the_station_status(tmp_path, station):  # noqa: F811
+    frames = tmp_path / "frames"
+    (frames / "top").mkdir(parents=True)
+    (frames / "top" / "000001.jpg").write_bytes(b"\xff\xd8old")
+    time.sleep(0.05)
+    (frames / "top" / "000002.jpg").write_bytes(b"\xff\xd8new")
+    session = app.Session(args(tmp_path, sim=False, station=station.url, frames=str(frames)))
+    assert session.camera("top", grid=True) == b"\xff\xd8new"
+    assert session.camera("left", grid=False) is None
+    assert session.vision()["source"] == "person"
+    brain = session.brain()
+    assert brain["station"]["reachable"] is True and brain["station"]["state"] == "idle"
+    assert brain["simulated"] is False
+
+
+def test_brain_says_when_the_station_is_unreachable(tmp_path):
+    session = app.Session(args(tmp_path, sim=False, station="http://127.0.0.1:9", frames=str(tmp_path)))
+    assert session.brain()["station"] == {"reachable": False}

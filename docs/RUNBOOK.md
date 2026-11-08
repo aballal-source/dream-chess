@@ -52,6 +52,10 @@ The page asks for everything the terminal used to: confirm the board is set up, 
 make your move (type it, or click a piece and then its square), and, after each robot step, whether
 the piece landed. **Stop the arms** on the page, or Ctrl+C on the NUC, stops the arms at once.
 
+"The robot's eyes" shows the frames the station hands Dream-1 (from `~/.dreamlabs/last-run_inputs`; change it
+with `--frames`), and "The robot's brain" shows the station's status. If the brain says *Station offline*, the
+station isn't running. The board itself still comes from your answers until the station shares its camera.
+
 For a short first test, start from a mate in two with `--fen "<position>"`.
 
 ## 5. Notes
