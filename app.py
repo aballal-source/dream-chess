@@ -275,6 +275,20 @@ class Session:
         return {"fen": start.fen(), "last_move": None, "turn": "white" if start.turn else "brown",
                 "check": start.is_check(), "physical": occupancy(start), "mismatch": [], "setup": True}
 
+    def restart(self, wait_s: float = 20.0) -> bool:
+        """End the game now (stopping the arms first, on the real robot) and start a fresh one."""
+        if self.running:
+            if not self.args.sim:
+                self.stop_robot()
+            with self.lock:
+                self.quitting = True
+                self.lock.notify_all()
+            if self.thread is not None:
+                self.thread.join(timeout=wait_s)
+            if self.running:
+                return False  # still finishing its last step: try again in a moment
+        return self.start()
+
     def _run(self) -> None:
         try:
             summary = run_robot.play(self.args, ask=self.ask, say=self.say, on_event=self.on_event,
@@ -399,7 +413,7 @@ class Session:
             elif action == "corners":
                 status = self.webcam.set_corners(body.get("corners"))
             elif action == "empty":
-                status = self.webcam.capture_empty(str(body.get("a1") or "bottom-left"))
+                status = self.webcam.capture_empty(body.get("a1") or None)
             elif action == "start":
                 status = self.webcam.capture_start()
             elif action == "reset":
@@ -532,6 +546,8 @@ def make_server(session: Session, port: int) -> ThreadingHTTPServer:
                     return self._json({"ok": ok}, 200 if ok else 409)
                 if self.path == "/new":
                     return self._json({"ok": session.start()})
+                if self.path == "/restart":
+                    return self._json({"ok": session.restart()})
                 if self.path == "/stop":
                     return self._json({"ok": True, "message": session.stop_robot()})
                 if self.path == "/webcam/move":

@@ -196,7 +196,9 @@ button, input { font: inherit; color: inherit; }
 .warm.ready .bar-track, .warm.error .bar-track { display: none; }
 @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
 .calib { margin: 16px 0; padding: 16px; border-radius: 12px; background: var(--accent-soft); }
-.calib .t { font-weight: 600; margin-bottom: 8px; }
+.calib .t { font-weight: 600; }
+.calib summary { cursor: pointer; list-style: revert; }
+.calib.on { background: var(--green-soft); } .calib.on .t { color: var(--green); }
 .calib ol { margin: 0; padding-left: 20px; display: grid; gap: 12px; font-size: 13px; color: var(--ink-2); }
 .calib li.done { color: var(--green); }
 .calib .row { justify-content: flex-start; margin-top: 8px; }
@@ -264,7 +266,7 @@ button, input { font: inherit; color: inherit; }
   </div>
   <span class="spacer"></span>
   <button class="btn icon" id="theme" type="button" aria-pressed="false"></button>
-  <button class="btn" id="newgame" type="button" hidden>New game</button>
+  <button class="btn" id="newgame" type="button">Restart game</button>
   <button class="btn danger" id="stoparms" type="button" hidden>Stop the arms</button>
 </header>
 
@@ -306,16 +308,15 @@ button, input { font: inherit; color: inherit; }
       <p class="sub" id="eyes-sub">The top camera, seen from the robot's side of the board.</p>
       <div class="cam"><img id="cam" alt="The robot's camera view of the board" hidden>
         <div class="empty" id="camempty">Starting the camera...</div><span class="tag" id="camtag"></span></div>
-      <div class="calib" id="calib" hidden>
-        <div class="t">Calibrate the top camera: once, about two minutes</div>
-        <div class="d" style="font-size:13px;color:var(--ink-2);margin-bottom:12px">Each picture briefly starts the
-          station with the arms holding still at home, and stops it before they can move. Pictures stay in memory.</div>
+      <details class="calib" id="calib" hidden>
+        <summary><span class="t" id="calib-title">Camera checks: off (optional)</span></summary>
+        <div class="d" style="font-size:13px;color:var(--ink-2);margin:8px 0 12px">With camera checks on, the top camera
+          looks at the board after every robot step and catches a piece that didn't land, and reads your moves
+          for you. Without them, you confirm each step. Setting it up takes two pictures, about a minute; the arms
+          stay still.</div>
         <ol>
-          <li id="cal1">Take every piece off the board. In the picture above, which corner is a1 (White's left)?
-            <div class="row"><select id="a1" aria-label="Where a1 is in the picture">
-              <option value="bottom-left">Bottom left</option><option value="bottom-right">Bottom right</option>
-              <option value="top-right">Top right</option><option value="top-left">Top left</option></select>
-              <button class="btn primary" id="cal-empty" type="button">Capture the empty board</button></div></li>
+          <li id="cal1">Take every piece off the board.
+            <div class="row"><button class="btn primary" id="cal-empty" type="button">Capture the empty board</button></div></li>
           <li id="calc" hidden>Couldn't find the board by itself. On the picture above, click the corners of the
             playing area in this order: <b>a1</b> (White's left), <b>h1</b>, <b>h8</b>, <b>a8</b>.
             <div class="row"><span id="cal-clicks">0 of 4</span><button class="btn" id="cal-redo" type="button">Start the clicks over</button></div></li>
@@ -323,8 +324,7 @@ button, input { font: inherit; color: inherit; }
             <div class="row"><button class="btn primary" id="cal-start" type="button" disabled>Capture the starting position</button></div></li>
         </ol>
         <div class="msg" id="cal-msg" role="status"></div>
-        <div class="row" style="margin-top:12px"><button class="btn" id="cal-look" type="button">Take a picture</button></div>
-      </div>
+      </details>
       <div class="flow" id="flow">
         <div><b>1. Capture</b>A frame from the camera above the board.</div>
         <div><b>2. Locate</b>Find the 64 squares from calibration.</div>
@@ -715,8 +715,9 @@ async function readVision() {
 function showCalibration(c) {
   if (!c) return;
   const card = $("calib");
-  card.hidden = c.calibrated && !calibrating;
-  $("flow").hidden = !card.hidden;
+  card.hidden = false;
+  card.classList.toggle("on", c.calibrated);
+  $("calib-title").textContent = c.calibrated ? "Camera checks: on" : "Camera checks: off (optional)";
   $("cal1").classList.toggle("done", c.step !== "empty");
   $("cal2").classList.toggle("done", c.calibrated);
   $("cal-start").disabled = c.step === "empty" || c.step === "corners";
@@ -728,7 +729,7 @@ let calibrating = false;
 async function calibrateStep(step, button) {
   if (step !== "look") calibrating = true;
   button.disabled = true; const label = button.textContent; button.textContent = "Capturing...";
-  const r = await post(`/webcam/${step}`, { a1: $("a1").value });
+  const r = await post(`/webcam/${step}`, {});
   button.textContent = label; button.disabled = false;
   const msg = $("cal-msg");
   if (!r.ok) { msg.textContent = r.error || "That didn't work."; msg.className = "msg bad"; }
@@ -739,7 +740,6 @@ async function calibrateStep(step, button) {
   showCalibration(r); loadCamera(true); readVision();
 }
 $("cal-empty").onclick = () => calibrateStep("empty", $("cal-empty"));
-$("cal-look").onclick = () => calibrateStep("look", $("cal-look"));
 // Marking the corners by hand, on the empty-board picture: a1, h1, h8, a8, in the picture's own pixels.
 let cornerMode = false, corners = [];
 $("cal-redo").onclick = () => { corners = []; $("cal-clicks").textContent = "0 of 4"; };
@@ -932,7 +932,20 @@ function showSide(side) {
 }
 document.querySelectorAll("#sideseg button").forEach(b => b.onclick = () => showSide(b.dataset.side));
 try { showSide(localStorage.getItem("dream-chess-side") || "white"); } catch (e) { showSide("white"); }
-$("newgame").onclick = async () => { $("banner").hidden = true; await post("/new"); };
+// Restart: two clicks while a game is on, so a stray click can't end it. Stops the arms first on the real robot.
+let restartArmed = null;
+$("newgame").onclick = async () => {
+  if (lastState.running && !restartArmed) {
+    $("newgame").textContent = "Click again to restart";
+    restartArmed = setTimeout(() => { restartArmed = null; $("newgame").textContent = "Restart game"; }, 4000);
+    return;
+  }
+  clearTimeout(restartArmed); restartArmed = null;
+  $("newgame").textContent = "Restarting..."; $("newgame").disabled = true; $("banner").hidden = true;
+  const r = await post("/restart");
+  $("newgame").disabled = false; $("newgame").textContent = "Restart game";
+  if (!r.ok) { $("banner").textContent = "Couldn't restart yet: the robot is finishing a step. Try again in a moment."; $("banner").className = "banner"; $("banner").hidden = false; }
+};
 $("stoparms").onclick = async () => { const r = await post("/stop"); log(r.message || "Stop sent."); };
 
 let bootId = null, eyesSetUp = null, liveTick = 0;
@@ -949,7 +962,8 @@ async function tick() {
     const mode = sim ? "sim" : st.webcam ? "webcam" : "station";
     if (eyesSetUp !== mode) { eyesSetUp = mode; setupEyes(mode); loadCamera(true); readVision(); }
     $("mode").textContent = sim ? "Simulation" : "Live robot"; $("mode").className = "chip " + (sim ? "sim" : "live");
-    $("stoparms").hidden = sim; $("newgame").hidden = st.running;
+    $("stoparms").hidden = sim;
+    if (!restartArmed && !$("newgame").disabled) $("newgame").textContent = st.running ? "Restart game" : "New game";
     $("s-moves").textContent = moves; $("s-attempts").textContent = attempts; $("s-fixes").textContent = fixes; $("s-help").textContent = rescues;
     if (st.pending && st.pending.kind === "move") setStage("opponent", "active", "Waiting for your move.");
     showQuestion(st.pending, st);
