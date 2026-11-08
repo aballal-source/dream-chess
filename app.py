@@ -649,7 +649,8 @@ def main() -> None:
     args = parser.parse_args()
     args.label = None
     if args.public:  # never the real robot, never anything a visitor could set off
-        args.sim, args.auto_opponent, args.voice, args.top_camera, args.supervise = True, True, "none", False, False
+        # The voice is "print": its lines and moving bars show on the page, with no LiveKit room or keys.
+        args.sim, args.auto_opponent, args.voice, args.top_camera, args.supervise = True, True, "print", False, False
 
     session = Session(args)
     server = make_server(session, args.port, public=args.public)
