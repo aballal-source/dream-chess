@@ -127,17 +127,22 @@ class BoardCamera:
             self._frame()
             return self.status()
 
-    def capture_empty(self, a1: str = "bottom-left") -> dict:
-        """Find the board on the empty board. `a1` is the image corner nearest a1. If it can't be found by itself,
-        the empty board is kept and the page asks for its four corners (set_corners)."""
+    def capture_empty(self, a1: str | None = None) -> dict:
+        """Find the board on the empty board. Which image corner is a1 is worked out here: a1 is the dark corner
+        square on White's left, and only one of the four corners fits (on the robot's top camera it's top right).
+        If the board can't be found at all, the empty board is kept and the page asks for its corners."""
         with self.lock:
-            if a1 not in A1_CORNERS:
+            if a1 is not None and a1 not in A1_CORNERS:
                 raise CalibrationError(f"a1 must be one of {', '.join(A1_CORNERS)}")
             frames = self._frames(self.frames_per_capture)
             self.empty, self.calibration, self.error, self.corners = frames, None, "", None
-            try:
-                self.corners = detect_corners(frames[-1].color, a1=a1)
-            except CalibrationError:
+            for corner in ([a1] if a1 else ["top-right", "top-left", "bottom-right", "bottom-left"]):
+                try:
+                    self.corners = detect_corners(frames[-1].color, a1=corner)
+                    break
+                except CalibrationError:
+                    continue
+            if self.corners is None:
                 self.error = "couldn't find the board by itself: click its four corners on the picture"
             return self.status()
 

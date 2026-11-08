@@ -199,13 +199,13 @@ def test_squares_are_described_from_the_robots_seat():
     from dreamchess.where import describe_path, describe_square
 
     # Brown sits behind rank 8 with the a-file on its right.
-    assert describe_square("b8", chess.BLACK) == "in the row nearest you, the second square in from your right"
-    assert describe_square("h1", chess.BLACK) == "in the row farthest from you, the square at your left edge"
-    assert describe_square("e4", chess.BLACK) == "in the fifth row from you, the fourth square in from your left"
+    assert describe_square("b8", chess.BLACK) == "nearest row, 2nd from your right"
+    assert describe_square("h1", chess.BLACK) == "farthest row, leftmost"
+    assert describe_square("e4", chess.BLACK) == "5th row, 4th from your left"
     assert describe_path("b8", "b1", chess.BLACK) == "seven rows straight away from you"
     assert describe_path("g8", "f6", chess.BLACK) == "two rows away from you and one column to your right"
     # White, behind rank 1, has the h-file on its right.
-    assert describe_square("h1", chess.WHITE) == "in the row nearest you, the square at your right edge"
+    assert describe_square("h1", chess.WHITE) == "nearest row, rightmost"
 
 
 def test_the_prompt_styles():
@@ -215,11 +215,22 @@ def test_the_prompt_styles():
     assert squares == ("Using your right arm, pick up the brown rook on square b8 and place it upright in the center "
                        "of square b1. Move slowly and do not touch any other piece.")
     both = where.write_prompt("right", "b", "rook", "b8", "b1", style="both")
-    assert both.startswith("Using your right arm, pick up the brown rook at Column (b), Row (8) (in the row nearest "
-                           "you, the second square in from your right) and place it upright in the center of Column (b), "
-                           "Row (1) (in the row farthest from you, the second square in from your right)")
-    assert both.endswith("seven rows straight away from you. Move slowly and do not touch any other piece.")
+    assert both == ("Using your right arm, pick up the brown rook at Column (b), Row (8) (nearest row, 2nd from your "
+                    "right) and place it at Column (b), Row (1) (farthest row, 2nd from your right). Move slowly and "
+                    "do not touch any other piece.")
     spatial = where.write_prompt("right", "b", "rook", "b8", "b1", style="spatial")
-    assert "b8" not in spatial and "b1" not in spatial and "row nearest you" in spatial
+    assert "b8" not in spatial and "b1" not in spatial and "at the nearest row, 2nd from your right" in spatial
     tray = where.write_prompt("right", "w", "pawn", "d3", where.TRAY, style="both")
     assert tray.endswith("put it in the tray on your right. Move slowly and do not touch any other piece.")
+
+
+def test_a_follow_up_after_a_failed_check_is_one_short_line():
+    from dreamchess import where
+
+    assert where.write_prompt("right", "b", "rook", "b3", "b1", style="both", fix=True) == (
+        "Using your right arm, move the brown rook from Column (b), Row (3) (6th row, 2nd from your right) to "
+        "Column (b), Row (1) (farthest row, 2nd from your right).")
+    # In our demos' wording, a fix is worded exactly as the fix demos were.
+    assert where.write_prompt("right", "b", "rook", "b3", "b1", style="squares", fix=True) == (
+        "Using your right arm, pick up the brown rook on square b3 and place it upright in the center of square b1. "
+        "Move slowly and do not touch any other piece.")

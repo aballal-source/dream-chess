@@ -384,3 +384,26 @@ def test_the_webcam_says_how_to_undo_an_illegal_move(tmp_path):
     assert session.state(0)["pending"]["id"] == state["pending"]["id"]  # still waiting for a real move
     session.answer(state["pending"]["id"], "quit")
     wait_for(session, lambda s: not s["running"])
+
+
+def test_restart_ends_the_game_and_starts_a_fresh_one(tmp_path):
+    session = app.Session(args(tmp_path))
+    session.start()
+    first = wait_for(session, lambda s: s["pending"] and s["pending"]["kind"] == "move")
+    assert session.restart()
+    state = wait_for(session, lambda s: s["pending"] and s["pending"]["kind"] == "move"
+                     and s["pending"]["id"] != first["pending"]["id"])
+    assert state["running"] and state["fen"] == chess.Board(BROWN_MATES).fen()
+    endings = [e for e in state["events"] if e["type"] == "game_end"]
+    assert endings and endings[-1]["ending"] == "quit"  # the first game was ended, and its summary saved
+    session.answer(state["pending"]["id"], "quit")
+    wait_for(session, lambda s: not s["running"])
+
+
+def test_restart_stops_the_arms_first_on_the_real_robot(tmp_path, station):  # noqa: F811
+    session = app.Session(args(tmp_path, sim=False, station=station.url, top_camera=False))
+    session.start()
+    wait_for(session, lambda s: s["pending"])
+    session.restart()
+    assert [p for m, p, b in station.requests if p == "/stop"]
+    session.shutdown()

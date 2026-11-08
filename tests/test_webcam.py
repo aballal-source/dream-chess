@@ -92,3 +92,13 @@ def test_the_start_position_needs_the_empty_board_first(tmp_path):
     cam = BoardCamera(lambda: Table(), tmp_path / "webcam.npz")
     with pytest.raises(CalibrationError, match="empty board first"):
         cam.capture_start()
+
+
+def test_the_orientation_is_found_without_being_told(tmp_path):
+    table = Table()  # the simulated camera on White's side: a1 is at the bottom left of its picture
+    cam = BoardCamera(lambda: table, tmp_path / "webcam.npz")
+    table.camera.pieces = {}
+    assert cam.capture_empty()["step"] == "start"
+    table.place(chess.Board())
+    assert cam.capture_start()["calibrated"]
+    assert cam.read() == occupancy(chess.Board())

@@ -196,7 +196,9 @@ button, input { font: inherit; color: inherit; }
 .warm.ready .bar-track, .warm.error .bar-track { display: none; }
 @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
 .calib { margin: 16px 0; padding: 16px; border-radius: 12px; background: var(--accent-soft); }
-.calib .t { font-weight: 600; margin-bottom: 8px; }
+.calib .t { font-weight: 600; }
+.calib summary { cursor: pointer; list-style: revert; }
+.calib.on { background: var(--green-soft); } .calib.on .t { color: var(--green); }
 .calib ol { margin: 0; padding-left: 20px; display: grid; gap: 12px; font-size: 13px; color: var(--ink-2); }
 .calib li.done { color: var(--green); }
 .calib .row { justify-content: flex-start; margin-top: 8px; }
@@ -223,6 +225,13 @@ button, input { font: inherit; color: inherit; }
 .step.failed { background: var(--red-soft); } .step.failed .n { background: var(--red); color: #fff; border-color: transparent; }
 .step.how.active { background: var(--brand-soft); } .step.how.active .n { background: var(--brand); }
 .step .prompt { margin-top: 4px; font: 12px/1.4 var(--mono); color: var(--ink); }
+/* Commands to Dream-1 this move: the last five, one line each, scrolling; click one to read it whole. */
+.cmds { list-style: none; margin: 6px 0 0; padding: 0; max-height: 140px; overflow-y: auto; display: grid; gap: 4px; }
+.cmd { font: 12px/1.35 var(--mono); padding: 4px 8px; border-radius: 6px; background: var(--card-2);
+  border: 1px solid var(--line); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.cmd.open { white-space: normal; }
+.cmd.sup { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 30%, transparent); }
+.cmd .cmdn { color: var(--ink-3); margin-right: 6px; }
 
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .stat { border: 1px solid var(--line); padding: 12px; border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
@@ -257,7 +266,7 @@ button, input { font: inherit; color: inherit; }
   </div>
   <span class="spacer"></span>
   <button class="btn icon" id="theme" type="button" aria-pressed="false"></button>
-  <button class="btn" id="newgame" type="button" hidden>New game</button>
+  <button class="btn" id="newgame" type="button">Restart game</button>
   <button class="btn danger" id="stoparms" type="button" hidden>Stop the arms</button>
 </header>
 
@@ -299,16 +308,15 @@ button, input { font: inherit; color: inherit; }
       <p class="sub" id="eyes-sub">The top camera, seen from the robot's side of the board.</p>
       <div class="cam"><img id="cam" alt="The robot's camera view of the board" hidden>
         <div class="empty" id="camempty">Starting the camera...</div><span class="tag" id="camtag"></span></div>
-      <div class="calib" id="calib" hidden>
-        <div class="t">Calibrate the top camera: once, about two minutes</div>
-        <div class="d" style="font-size:13px;color:var(--ink-2);margin-bottom:12px">Each picture briefly starts the
-          station with the arms holding still at home, and stops it before they can move. Pictures stay in memory.</div>
+      <details class="calib" id="calib" hidden>
+        <summary><span class="t" id="calib-title">Camera checks: off (optional)</span></summary>
+        <div class="d" style="font-size:13px;color:var(--ink-2);margin:8px 0 12px">With camera checks on, the top camera
+          looks at the board after every robot step and catches a piece that didn't land, and reads your moves
+          for you. Without them, you confirm each step. Setting it up takes two pictures, about a minute; the arms
+          stay still.</div>
         <ol>
-          <li id="cal1">Take every piece off the board. In the picture above, which corner is a1 (White's left)?
-            <div class="row"><select id="a1" aria-label="Where a1 is in the picture">
-              <option value="bottom-left">Bottom left</option><option value="bottom-right">Bottom right</option>
-              <option value="top-right">Top right</option><option value="top-left">Top left</option></select>
-              <button class="btn primary" id="cal-empty" type="button">Capture the empty board</button></div></li>
+          <li id="cal1">Take every piece off the board.
+            <div class="row"><button class="btn primary" id="cal-empty" type="button">Capture the empty board</button></div></li>
           <li id="calc" hidden>Couldn't find the board by itself. On the picture above, click the corners of the
             playing area in this order: <b>a1</b> (White's left), <b>h1</b>, <b>h8</b>, <b>a8</b>.
             <div class="row"><span id="cal-clicks">0 of 4</span><button class="btn" id="cal-redo" type="button">Start the clicks over</button></div></li>
@@ -316,8 +324,7 @@ button, input { font: inherit; color: inherit; }
             <div class="row"><button class="btn primary" id="cal-start" type="button" disabled>Capture the starting position</button></div></li>
         </ol>
         <div class="msg" id="cal-msg" role="status"></div>
-        <div class="row" style="margin-top:12px"><button class="btn" id="cal-look" type="button">Take a picture</button></div>
-      </div>
+      </details>
       <div class="flow" id="flow">
         <div><b>1. Capture</b>A frame from the camera above the board.</div>
         <div><b>2. Locate</b>Find the 64 squares from calibration.</div>
@@ -427,6 +434,28 @@ function setStage(id, status, html) {
   if (html !== undefined) s.detail.innerHTML = html;
   lightLoop();
 }
+// The How step: a one-line status, then the commands sent to Dream-1 this move (the last five).
+function howHead(text) {
+  let head = stage.how.detail.querySelector(".howhead");
+  if (!head) { head = document.createElement("div"); head.className = "howhead"; stage.how.detail.prepend(head); }
+  head.textContent = text;
+}
+function addCommand(kind, label, text) {
+  let list = stage.how.detail.querySelector(".cmds");
+  if (!list) { list = document.createElement("ol"); list.className = "cmds"; stage.how.detail.append(list); }
+  const li = document.createElement("li"); li.className = "cmd " + kind; li.title = text;
+  const n = document.createElement("span"); n.className = "cmdn"; n.textContent = label;
+  li.append(n, document.createTextNode(text)); li.onclick = () => li.classList.toggle("open");
+  list.append(li);
+  while (list.children.length > 5) list.firstElementChild.remove();
+  list.scrollTop = list.scrollHeight;
+}
+// The squares a prompt names, for the board's highlight: "Column (b), Row (8)" or "square b8".
+function promptSquares(text) {
+  const found = [...text.matchAll(/Column \(([a-h])\), Row \(([1-8])\)/g)].map(m => m[1] + m[2]);
+  const sq = found.length ? found : (text.match(/\b[a-h][1-8]\b/g) || []);
+  return { from: sq[0] || null, to: sq[1] || null };
+}
 function lightLoop() {
   const on = new Set();
   for (const s of Object.values(stage)) if (s.status === "active") on.add(s.node);
@@ -467,7 +496,7 @@ function handle(e) {
   // The supervisor's calls during a move go under How: what it saw, and what it asked Dream-1 next.
   if (e.type === "say" && /SUPERVISE|ending the run/.test(e.text)) {
     const line = e.text.replace(/^\s*SUPERVISE\s*/, "");
-    stage.how.detail.insertAdjacentHTML("beforeend", `<div class="prompt" style="color:var(--brand)">\u21b3 ${esc(line)}</div>`);
+    addCommand("sup", "\u21b3", line);
   }
   if (e.type === "agent") log(e.text);
   if (e.type === "error") { log(e.text, "err"); $("banner").textContent = e.text; $("banner").className = "banner"; $("banner").hidden = false; }
@@ -492,10 +521,10 @@ function handle(e) {
     } else if (kind === "HOW") {
       const m = body.match(/\[(\d+)\/(\d+)\] (.*)/);
       if (m) {
-        const sq = (m[3].match(/\b[a-h][1-8]\b/g) || []);
-        highlight = { from: sq[0] || null, to: sq[1] || null };
-        const fix = +m[1] > 1;
-        setStage("how", "active", `${fix ? "Retry" : "Sent to Dream-1"}, attempt ${m[1]} of ${m[2]}.<div class="prompt">“${esc(m[3])}”</div>`);
+        highlight = promptSquares(m[3]);
+        howHead(`${+m[1] > 1 ? "Retry" : "Sent to Dream-1"}, attempt ${m[1]} of ${m[2]}.`);
+        addCommand("send", `${m[1]}/${m[2]}`, m[3]);
+        setStage("how", "active");
         setStage("check", "", "");
       }
     } else if (kind === "CHECK") {
@@ -515,7 +544,8 @@ function handle(e) {
   }
   if (e.type === "attempt") {
     attempts++;
-    setStage("how", "done", stage.how.detail.innerHTML.replace(/^(Sent to Dream-1|Retry)/, "Done") + "");
+    howHead(`Done${e.seconds != null ? ` in ${e.seconds}s` : ""}.`);
+    setStage("how", "done");
     setStage("check", "active", "Comparing the board with the plan...");
     awaitingCheck = true;
   }
@@ -624,7 +654,7 @@ function showFrame(url, tag) {
   const pre = new Image();
   pre.onload = () => { $("cam").src = url; $("cam").classList.toggle("zoom", eyesMode === "sim"); $("cam").hidden = false; $("camempty").hidden = true; $("camtag").innerHTML = tag; };
   pre.onerror = () => { $("cam").hidden = true; $("camempty").hidden = false;
-    $("camempty").textContent = eyesMode === "webcam" && !liveMode ? "No picture yet. Press \u201cTake a picture\u201d below."
+    $("camempty").textContent = eyesMode === "webcam" && !liveMode ? "No picture yet. With camera checks on, the top camera takes one after each robot step."
       : liveMode ? "No frames yet. Dream-1's camera frames appear here while the arms move." : "The camera is starting..."; };
   pre.src = url;
 }
@@ -660,7 +690,7 @@ async function readVision() {
     if (v.source === "webcam" && !v.ready) {
       drawDetected(lastState, {});
       a.className = "status wait"; a.textContent = "Not calibrated";
-      $("agree-why").textContent = "Calibrate the top camera above. Then it checks every robot step, and reads your moves.";
+      $("agree-why").textContent = "Camera checks are off, so you confirm each step. Turning them on (above) is optional.";
       return;
     }
     if (v.source === "person") {
@@ -685,8 +715,9 @@ async function readVision() {
 function showCalibration(c) {
   if (!c) return;
   const card = $("calib");
-  card.hidden = c.calibrated && !calibrating;
-  $("flow").hidden = !card.hidden;
+  card.hidden = false;
+  card.classList.toggle("on", c.calibrated);
+  $("calib-title").textContent = c.calibrated ? "Camera checks: on" : "Camera checks: off (optional)";
   $("cal1").classList.toggle("done", c.step !== "empty");
   $("cal2").classList.toggle("done", c.calibrated);
   $("cal-start").disabled = c.step === "empty" || c.step === "corners";
@@ -698,7 +729,7 @@ let calibrating = false;
 async function calibrateStep(step, button) {
   if (step !== "look") calibrating = true;
   button.disabled = true; const label = button.textContent; button.textContent = "Capturing...";
-  const r = await post(`/webcam/${step}`, { a1: $("a1").value });
+  const r = await post(`/webcam/${step}`, {});
   button.textContent = label; button.disabled = false;
   const msg = $("cal-msg");
   if (!r.ok) { msg.textContent = r.error || "That didn't work."; msg.className = "msg bad"; }
@@ -709,7 +740,6 @@ async function calibrateStep(step, button) {
   showCalibration(r); loadCamera(true); readVision();
 }
 $("cal-empty").onclick = () => calibrateStep("empty", $("cal-empty"));
-$("cal-look").onclick = () => calibrateStep("look", $("cal-look"));
 // Marking the corners by hand, on the empty-board picture: a1, h1, h8, a8, in the picture's own pixels.
 let cornerMode = false, corners = [];
 $("cal-redo").onclick = () => { corners = []; $("cal-clicks").textContent = "0 of 4"; };
@@ -902,7 +932,20 @@ function showSide(side) {
 }
 document.querySelectorAll("#sideseg button").forEach(b => b.onclick = () => showSide(b.dataset.side));
 try { showSide(localStorage.getItem("dream-chess-side") || "white"); } catch (e) { showSide("white"); }
-$("newgame").onclick = async () => { $("banner").hidden = true; await post("/new"); };
+// Restart: two clicks while a game is on, so a stray click can't end it. Stops the arms first on the real robot.
+let restartArmed = null;
+$("newgame").onclick = async () => {
+  if (lastState.running && !restartArmed) {
+    $("newgame").textContent = "Click again to restart";
+    restartArmed = setTimeout(() => { restartArmed = null; $("newgame").textContent = "Restart game"; }, 4000);
+    return;
+  }
+  clearTimeout(restartArmed); restartArmed = null;
+  $("newgame").textContent = "Restarting..."; $("newgame").disabled = true; $("banner").hidden = true;
+  const r = await post("/restart");
+  $("newgame").disabled = false; $("newgame").textContent = "Restart game";
+  if (!r.ok) { $("banner").textContent = "Couldn't restart yet: the robot is finishing a step. Try again in a moment."; $("banner").className = "banner"; $("banner").hidden = false; }
+};
 $("stoparms").onclick = async () => { const r = await post("/stop"); log(r.message || "Stop sent."); };
 
 let bootId = null, eyesSetUp = null, liveTick = 0;
@@ -919,7 +962,8 @@ async function tick() {
     const mode = sim ? "sim" : st.webcam ? "webcam" : "station";
     if (eyesSetUp !== mode) { eyesSetUp = mode; setupEyes(mode); loadCamera(true); readVision(); }
     $("mode").textContent = sim ? "Simulation" : "Live robot"; $("mode").className = "chip " + (sim ? "sim" : "live");
-    $("stoparms").hidden = sim; $("newgame").hidden = st.running;
+    $("stoparms").hidden = sim;
+    if (!restartArmed && !$("newgame").disabled) $("newgame").textContent = st.running ? "Restart game" : "New game";
     $("s-moves").textContent = moves; $("s-attempts").textContent = attempts; $("s-fixes").textContent = fixes; $("s-help").textContent = rescues;
     if (st.pending && st.pending.kind === "move") setStage("opponent", "active", "Waiting for your move.");
     showQuestion(st.pending, st);

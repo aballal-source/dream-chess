@@ -59,6 +59,7 @@ PROMPT_STYLE = "squares"
 ROBOT_SIDE = chess.BLACK  # which side's edge the robot sits behind, for "nearest you" and "your right"
 ORDINALS = ["", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth"]
 NUMBERS = ["no", "one", "two", "three", "four", "five", "six", "seven"]
+SHORT = ["", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"]
 
 
 def _row_col(square: str, side: chess.Color) -> tuple[int, int]:
@@ -70,15 +71,15 @@ def _row_col(square: str, side: chess.Color) -> tuple[int, int]:
 
 
 def describe_square(square: str, side: chess.Color = None) -> str:
-    """Where a square is, as the robot sees it: "in the row nearest you, second square in from your right"."""
+    """Where a square is, as the robot sees it, in as few words as will do: "nearest row, 2nd from your right"."""
     row, col = _row_col(square, ROBOT_SIDE if side is None else side)
-    rows = "the row nearest you" if row == 1 else "the row farthest from you" if row == 8 else         f"the {ORDINALS[row]} row from you"
+    rows = "nearest row" if row == 1 else "farthest row" if row == 8 else f"{SHORT[row]} row"
     if col <= 4:
-        cols = "the square at your right edge" if col == 1 else f"the {ORDINALS[col]} square in from your right"
+        cols = "rightmost" if col == 1 else f"{SHORT[col]} from your right"
     else:
         left = 9 - col
-        cols = "the square at your left edge" if left == 1 else f"the {ORDINALS[left]} square in from your left"
-    return f"in {rows}, {cols}"
+        cols = "leftmost" if left == 1 else f"{SHORT[left]} from your left"
+    return f"{rows}, {cols}"
 
 
 def describe_path(source: str, target: str, side: chess.Color = None) -> str:
@@ -99,32 +100,38 @@ def describe_path(source: str, target: str, side: chess.Color = None) -> str:
 
 def _where(square: str, style: str) -> str:
     if style == "spatial":
-        return f"the square {describe_square(square)}"
+        return f"the {describe_square(square)}"
     if style == "both":
         return f"Column ({square[0]}), Row ({square[1]}) ({describe_square(square)})"
     return f"square {square}"
 
 
-def write_prompt(arm: str, color: str, piece_name: str, source: str, target: str, style: str | None = None) -> str:
-    """The text Dream-1 receives. Tune this wording on the real robot first."""
+def write_prompt(arm: str, color: str, piece_name: str, source: str, target: str, style: str | None = None,
+                 fix: bool = False) -> str:
+    """The text Dream-1 receives: who (which arm), what (which piece), where from, where to.
+
+    A first instruction keeps the shape of our training demos. A follow-up after a failed check (`fix`) is one
+    short line, since the arm, the piece and the goal are already set: move it from where it is now to the target.
+    The "squares" style is our demos' exact wording, follow-ups included."""
     style = style or PROMPT_STYLE
     item = f"{color_word(color)} {piece_name}".strip()
-    # There's a tray beside each arm, so each arm uses the one on its own side.
-    if source == TRAY:
-        pick = f"pick up the spare {item} from the tray on your {arm}"
-    else:
-        pick = f"pick up the {item} {'at' if style == 'both' else 'on'} {_where(source, style)}"
-    if target == TRAY:
-        place = f"put it in the tray on your {arm}"
-    else:
-        place = f"place it upright in the center of {_where(target, style)}"
-        if style != "squares" and source != TRAY:
-            place += f", {describe_path(source, target)}"
+    tray = f"the tray on your {arm}"
+    if style == "squares":  # word for word as recorded, so the fine-tunes see what they were trained on
+        pick = f"pick up the spare {item} from {tray}" if source == TRAY else f"pick up the {item} on square {source}"
+        place = f"put it in {tray}" if target == TRAY else f"place it upright in the center of square {target}"
+        return f"Using your {arm} arm, {pick} and {place}. Move slowly and do not touch any other piece."
+    here = tray if source == TRAY else _where(source, style)
+    there = tray if target == TRAY else _where(target, style)
+    if fix:
+        return f"Using your {arm} arm, move the {item} from {here} to {there}."
+    pick = f"pick up the spare {item} from {tray}" if source == TRAY else f"pick up the {item} at {here}"
+    place = f"put it in {tray}" if target == TRAY else f"place it at {there}"
     return f"Using your {arm} arm, {pick} and {place}. Move slowly and do not touch any other piece."
 
 
 def make_step(
-    color: str, piece_name: str, source: str, target: str, robot_color: chess.Color, expected_after: Occupancy
+    color: str, piece_name: str, source: str, target: str, robot_color: chess.Color, expected_after: Occupancy,
+    fix: bool = False,
 ) -> Step:
     arm = arm_for(target if source == TRAY else source, robot_color)
     return Step(
@@ -133,7 +140,7 @@ def make_step(
         source=source,
         target=target,
         arm=arm,
-        prompt=write_prompt(arm, color, piece_name, source, target),
+        prompt=write_prompt(arm, color, piece_name, source, target, fix=fix),
         expected_after=expected_after,
     )
 
