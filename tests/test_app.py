@@ -407,3 +407,43 @@ def test_restart_stops_the_arms_first_on_the_real_robot(tmp_path, station):  # n
     session.restart()
     assert [p for m, p, b in station.requests if p == "/stop"]
     session.shutdown()
+
+
+# --- The robot's voice on the page ---
+
+def test_what_the_robot_says_reaches_the_page(tmp_path):
+    session = app.Session(args(tmp_path, voice="print"))
+    session.start()
+    state = wait_for(session, lambda s: s["pending"] and s["pending"]["kind"] == "move")
+    assert state["voice"] == "print"
+    session.answer(state["pending"]["id"], "Kg1")
+    state = wait_for(session, lambda s: not s["running"])
+    said = [e["text"] for e in state["events"] if e["type"] == "voice"]
+    assert "My rook moves from b8 to b1. Checkmate!" in said
+
+
+def test_the_listen_pass_is_only_given_with_the_livekit_voice(tmp_path):
+    server, port = serve(app.Session(args(tmp_path)))
+    try:
+        with pytest.raises(urllib.error.HTTPError) as err:
+            request(port, "/voice/token", f"localhost:{port}")
+        assert err.value.code == 404
+        with pytest.raises(urllib.error.HTTPError) as err:  # and never to another site's page
+            request(port, "/voice/token", f"evil.example:{port}")
+        assert err.value.code == 403
+    finally:
+        server.shutdown()
+
+
+def test_the_listen_pass_can_only_listen(tmp_path, monkeypatch):
+    api = pytest.importorskip("livekit.api")
+    import base64
+
+    monkeypatch.setenv("LIVEKIT_URL", "wss://example.livekit.cloud")
+    monkeypatch.setenv("LIVEKIT_API_KEY", "key")
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "secret-for-tests-only-0123456789")
+    found = app.Session(args(tmp_path, voice="livekit")).voice_token()
+    payload = found["token"].split(".")[1]
+    grants = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["video"]
+    assert grants["roomJoin"] and grants["room"] == "dream-chess" and grants["canPublish"] is False
+    assert found["url"] == "wss://example.livekit.cloud" and api
