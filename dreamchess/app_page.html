@@ -654,7 +654,7 @@ function showFrame(url, tag) {
   const pre = new Image();
   pre.onload = () => { $("cam").src = url; $("cam").classList.toggle("zoom", eyesMode === "sim"); $("cam").hidden = false; $("camempty").hidden = true; $("camtag").innerHTML = tag; };
   pre.onerror = () => { $("cam").hidden = true; $("camempty").hidden = false;
-    $("camempty").textContent = eyesMode === "webcam" && !liveMode ? "No picture yet. Press \u201cTake a picture\u201d below."
+    $("camempty").textContent = eyesMode === "webcam" && !liveMode ? "No picture yet. With camera checks on, the top camera takes one after each robot step."
       : liveMode ? "No frames yet. Dream-1's camera frames appear here while the arms move." : "The camera is starting..."; };
   pre.src = url;
 }
@@ -690,7 +690,7 @@ async function readVision() {
     if (v.source === "webcam" && !v.ready) {
       drawDetected(lastState, {});
       a.className = "status wait"; a.textContent = "Not calibrated";
-      $("agree-why").textContent = "Calibrate the top camera above. Then it checks every robot step, and reads your moves.";
+      $("agree-why").textContent = "Camera checks are off, so you confirm each step. Turning them on (above) is optional.";
       return;
     }
     if (v.source === "person") {
