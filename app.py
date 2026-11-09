@@ -31,6 +31,7 @@ from dreamchess.core import occupancy
 from dreamchess.human_eyes import GameQuit
 
 PAGE = Path(__file__).parent / "dreamchess" / "app_page.html"
+STATS_PAGE = Path(__file__).parent / "dreamchess" / "stats_page.html"
 PACED = ("agent", "attempt", "attempt_result", "opponent_move", "help")
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]")
 PUBLIC_RESTART_EVERY_S = 15.0  # on the public site, one visitor's restart can't keep resetting everyone's game
@@ -104,6 +105,7 @@ class Session:
         # What the agent last asked Dream-1 to do, from the game's own events (both modes).
         self.dream: dict = {"state": "idle", "prompt": None, "arm": None, "attempt": None, "calls": 0,
                             "last_seconds": None, "landed": None}
+        self.engine_name: str | None = None  # from the game's start event: "stockfish", or the built-in fallback
 
     # -- what the game thread calls --------------------------------------------------------------------------------
     def _publish(self) -> None:
@@ -152,6 +154,8 @@ class Session:
                 self.dream["landed"] = False
 
     def on_event(self, event: dict) -> None:
+        if event.get("type") == "game_start":
+            self.engine_name = event.get("engine")
         self._track_dream(event)
         self._add(event)
         self._publish()
@@ -484,7 +488,88 @@ class Session:
             out["station"] = station_telemetry(self.args.station)
             out["warm"] = self.warm_status()
             out["hand"] = self.hand()
+        out["services"] = self.services(out)
         return out
+
+    def services(self, brain: dict) -> list[dict]:
+        """Everything the robot depends on, and whether it's connected: the landing page's status panel.
+        `state` is ok, warn, bad, off or placeholder (a part the system still needs, see docs/NEXT_STEPS.md)."""
+        sim = bool(self.args.sim)
+        out = []
+        warm = brain.get("warm") or {}
+        if sim:
+            out.append({"name": "Dream-1 · DreamAPI", "detail": "Simulated for rehearsal", "state": "warn"})
+        else:
+            w = warm.get("state")
+            out.append({"name": "Dream-1 · DreamAPI", "detail": {"ready": "Running and answering",
+                        "warming": "Starting the model", "error": warm.get("message") or "Couldn't start the model",
+                        "off": warm.get("message") or "Not started"}.get(w, "Checking..."),
+                        "state": {"ready": "ok", "warming": "warn", "error": "bad"}.get(w, "off")})
+            station = brain.get("station") or {}
+            out.append({"name": "Robot station", "detail": "Offline" if not station.get("reachable")
+                        else f"Reachable · {station.get('state') or 'unknown'}",
+                        "state": "ok" if station.get("reachable") else "bad"})
+        engine = self.engine_name
+        out.append({"name": "Chess engine", "detail": "Stockfish (C++), run from Python" if engine == "stockfish"
+                    else "Built-in fallback: Stockfish isn't installed" if engine else "Starting...",
+                    "state": "ok" if engine == "stockfish" else "warn" if engine else "off"})
+        from dreamchess.agents import make_agents
+
+        stand_in = {"watcher": "the checker's verdict", "prompt writer": "template sentences"}
+        for agent in make_agents(getattr(self.args, "agents", "rules"), getattr(self.args, "agent_model", None)).status():
+            if agent["placeholder"] and agent["connected"]:
+                detail, state = agent["name"], "ok"
+            elif agent["placeholder"]:
+                detail, state = f"LLM not connected: {stand_in[agent['role']]}", "placeholder"
+            else:
+                detail, state = f"Stand-in: {stand_in[agent['role']]}", "placeholder"
+            out.append({"name": f"{agent['role'].capitalize()} agent", "detail": detail, "state": state})
+        if sim:
+            out.append({"name": "Top camera checker", "detail": "Simulated camera", "state": "warn"})
+        elif self.webcam is None:
+            out.append({"name": "Top camera checker", "detail": "Off: a person checks each step", "state": "off"})
+        else:
+            calibrated = self.webcam.status()["calibrated"]
+            out.append({"name": "Top camera checker", "detail": "Calibrated" if calibrated
+                        else "Not calibrated: a person checks each step", "state": "ok" if calibrated else "warn"})
+        voice = getattr(self.args, "voice", "none")
+        out.append({"name": "Voice · LiveKit", "detail": {"livekit": "Speaking in a LiveKit room",
+                    "print": "Text only, no audio"}.get(voice, "Off"),
+                    "state": {"livekit": "ok", "print": "warn"}.get(voice, "off")})
+        return out
+
+    def stats(self) -> dict:
+        """This game's numbers and every instruction sent to Dream-1, for the stats page (not the landing page)."""
+        with self.lock:
+            game = [e for e in self.events if e.get("game") == self.game_number]
+            summary = dict(self.summary) if self.summary else None
+        agent_lines = [e.get("text", "") for e in game if e.get("type") == "agent"]
+        prompts = []
+        for e in game:
+            text = e.get("text", "") if e.get("type") == "agent" else ""
+            found = re.match(r"HOW\s+\[(\d+)/(\d+)\] (.*)", text)
+            if found:
+                prompts.append({"attempt": f"{found.group(1)}/{found.group(2)}", "prompt": found.group(3),
+                                "kind": "retry" if found.group(1) != "1" else "first"})
+            elif e.get("type") == "say" and "SUPERVISE" in e.get("text", ""):
+                prompts.append({"attempt": "mid-run", "prompt": e["text"].split("SUPERVISE", 1)[1].strip(),
+                                "kind": "supervisor"})
+        moves = sum(1 for t in agent_lines if t.startswith("WHERE"))
+        if summary and summary.get("robot_moves") is not None:
+            moves = summary["robot_moves"]
+        elif self.running and moves and not any(t.startswith("SEEN") for t in agent_lines[
+                max(i for i, t in enumerate(agent_lines) if t.startswith("WHERE")):]):
+            moves -= 1  # the robot is still making its latest move
+        return {
+            "game": self.game_number, "running": self.running, "summary": summary,
+            "robot_moves": moves,
+            "dream_calls": sum(1 for e in game if e.get("type") == "attempt"),
+            "self_corrections": sum(1 for t in agent_lines if t.startswith("CHECK")),
+            "human_rescues": sum(1 for t in agent_lines if t.startswith("HELP")),
+            "handoffs": sum(1 for t in agent_lines if t.startswith("HANDOFF")),
+            "prompts": prompts,
+            "log": [{"type": e.get("type"), "text": e.get("text", "")} for e in game if e.get("text")],
+        }
 
     def state(self, since: int) -> dict:
         with self.lock:
@@ -555,6 +640,10 @@ def make_server(session: Session, port: int, public: bool = False) -> ThreadingH
                 self._json(session.vision())
             elif path == "/brain":
                 self._json(session.brain())
+            elif path == "/stats":
+                self._send(200, STATS_PAGE.read_bytes(), "text/html; charset=utf-8")
+            elif path == "/stats.json":
+                self._json(session.stats())
             elif path == "/voice/token":
                 try:
                     found = session.voice_token()

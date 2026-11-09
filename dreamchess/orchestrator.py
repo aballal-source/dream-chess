@@ -12,6 +12,7 @@ from typing import Callable
 
 import chess
 
+from .agents import AgentChain
 from .core import TRAY, Human, Mover, MoverError, Occupancy, OpponentSignal, Perception, Step, color_code, occupancy
 from .engine import Engine
 from .voice import SilentVoice
@@ -84,6 +85,7 @@ class Orchestrator:
         config: Config | None = None,
         log: Callable[[str], None] = print,
         voice=None,
+        agents: AgentChain | None = None,
     ):
         self.board = board
         self.robot_color = robot_color
@@ -95,6 +97,8 @@ class Orchestrator:
         self.config = config or Config()
         self.log = log
         self.voice = voice or SilentVoice()  # says each move and reacts; see voice.py
+        # The helper agents between the checker and Dream-1 (agents.py). The default stand-ins change nothing.
+        self.agents = agents or AgentChain()
         self.stats = Stats()
 
     def run(self, max_plies: int | None = None) -> str:
@@ -202,6 +206,7 @@ class Orchestrator:
         square before and after this step, so a correction can name the piece it moves."""
         step = first
         attempts = 0
+        self.agents.new_goal()
         human_calls = 0
         while True:
             if step is not None:
@@ -223,6 +228,8 @@ class Orchestrator:
 
             verdict = describe_failure(step, missing, extra, (names or ({}, {}))[1])
             self.log(f"CHECK missing={sorted(missing)} extra={sorted(extra)}: {verdict}")
+            self.agents.failed(step, verdict)
+            failed = step
 
             can_retry = (
                 attempts < self.config.max_attempts
@@ -230,6 +237,7 @@ class Orchestrator:
             )
             step = self._corrective_step(missing, extra, goal, first, names) if can_retry else None
             if step is not None:
+                step = self.agents.revise(step, verdict, failed)
                 self.stats.corrections += 1
                 self.voice.fixing()
                 continue

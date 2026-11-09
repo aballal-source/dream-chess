@@ -73,6 +73,11 @@ def plain(line: str) -> str:
         return "You " + rest.split(" ", 1)[1] + "."
     if kind == "HELP":
         return "I can't fix this alone, so I'm asking a person for help."
+    found = re.match(r"(.+?) -> (.+?): (.*)", rest)
+    if kind == "HANDOFF" and found:  # one agent passing something to the next (dreamchess/agents.py)
+        return f"{found.group(1).capitalize()} to {found.group(2)}: {found.group(3)}"
+    if kind == "AGENT":
+        return rest[:1].upper() + rest[1:] + "."
     return line
 
 
@@ -82,6 +87,11 @@ def add_voice_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--voice-room", help="with --voice livekit, the LiveKit room (default dream-chess)")
     parser.add_argument("--voice-model", help='with --voice livekit, the TTS voice, "provider/model:voice"')
     parser.add_argument("--voice-local", action="store_true", help="with --voice livekit, also play it here")
+    # The helper agents between the checker and Dream-1 (dreamchess/agents.py).
+    parser.add_argument("--agents", choices=("rules", "llm"), default="rules",
+                        help="rules: today's stand-ins (template retries); llm: the LLM watcher and prompt writer "
+                             "placeholders, which fall back to the stand-ins until a model is connected")
+    parser.add_argument("--agent-model", help="with --agents llm, the model the LLM agents call")
 
 
 def describe_position(board: chess.Board) -> str:
@@ -202,8 +212,22 @@ def play(args, ask=input, say=print, client=None, clock=time.monotonic, on_event
         voice = make_voice(getattr(args, "voice", "none"), out=spoken, room=getattr(args, "voice_room", None),
                            model=getattr(args, "voice_model", None), local=getattr(args, "voice_local", False),
                            seed=args.seed)
+        from dreamchess.agents import make_agents
+
+        agents = make_agents(getattr(args, "agents", "rules"), getattr(args, "agent_model", None), log=narrate)
+        if not args.sim and getattr(args, "board_camera", None) is not None:
+            # The watcher gets the top camera's last picture (never a new one: taking one is a station run).
+            def last_picture(camera=args.board_camera):
+                from dreamchess.vision import CalibrationError
+
+                try:
+                    return camera.snapshot(False)
+                except CalibrationError:
+                    return None
+
+            agents.picture = last_picture
         agent = Orchestrator(board, ROBOT, engine, mover, perception, human, opponent, config=config, log=narrate,
-                             voice=voice)
+                             voice=voice, agents=agents)
     except BaseException:
         engine.close()
         if voice is not None:
