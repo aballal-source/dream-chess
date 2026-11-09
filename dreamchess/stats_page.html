@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dream Chess · Stats</title>
+<script>
+let wanted = new URLSearchParams(location.search).get("theme");
+try { wanted = wanted || localStorage.getItem("dream-chess-theme"); } catch (e) {}
+if (wanted === "light") document.documentElement.dataset.theme = "light";
+</script>
+<style>
+/* The numbers and the record, kept off the landing page: this game's stats, every instruction sent to Dream-1,
+   and the full activity log. Same palette as the app. */
+:root {
+  --bg: #0b0b0d; --card: #161618; --card-2: #1e1e22; --ink: #f5f5f7; --ink-2: #c4c4ca; --ink-3: #8b8b93;
+  --line: rgba(255,255,255,.08); --accent: #ff7a1a; --brand: #ff7a1a; --red: #ff6b5f;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #ffffff; --card: #ffffff; --card-2: #f7f5fc; --ink: #1d1d1f; --ink-2: #515154; --ink-3: #86868b;
+  --line: rgba(20,0,60,.09); --accent: #6d28d9; --brand: #7c3aed; --red: #d1342b;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 var(--font); }
+a { color: var(--accent); }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 24px max(16px, env(safe-area-inset-left)) 48px; display: grid; gap: 16px; }
+h1 { margin: 0; font-size: 22px; } h2 { margin: 0 0 12px; font-size: 17px; }
+.sub { color: var(--ink-3); font-size: 13px; margin: 4px 0 0; }
+.card { border: 1px solid var(--line); background: var(--card); border-radius: 16px; padding: 20px; min-width: 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.stat { border: 1px solid var(--line); padding: 12px; border-radius: 12px; background: var(--card-2); }
+.stat b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--ink-3); }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+td.p { font-family: var(--mono); font-size: 12px; }
+td.k { white-space: nowrap; color: var(--ink-2); }
+tr.retry td.k, tr.supervisor td.k { color: var(--brand); }
+.lines { max-height: 480px; overflow: auto; padding: 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line);
+  font: 12px/1.6 var(--mono); color: var(--ink-2); }
+.lines .error { color: var(--red); }
+.empty { color: var(--ink-3); font-size: 13px; }
+</style>
+<main class="wrap">
+  <div><a href="/">← Back to the game</a>
+    <h1 style="margin-top:8px">Stats &amp; logs</h1>
+    <p class="sub" id="gameline">Loading...</p></div>
+  <section class="card"><h2>This game</h2>
+    <div class="stats">
+      <div class="stat"><b id="s-moves">0</b><span>Robot moves</span></div>
+      <div class="stat"><b id="s-calls">0</b><span>Dream-1 calls</span></div>
+      <div class="stat"><b id="s-fixes">0</b><span>Self-corrections</span></div>
+      <div class="stat"><b id="s-help">0</b><span>Human rescues</span></div>
+      <div class="stat"><b id="s-handoffs">0</b><span>Agent hand-offs</span></div>
+    </div></section>
+  <section class="card"><h2>Instructions sent to Dream-1</h2>
+    <div class="scroll"><table><thead><tr><th>Attempt</th><th>Instruction</th></tr></thead><tbody id="prompts"></tbody></table></div>
+    <p class="empty" id="noprompts">None yet.</p></section>
+  <section class="card"><h2>Activity log</h2><div class="lines" id="log"></div></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+async function tick() {
+  try {
+    const s = await (await fetch("/stats.json", { cache: "no-store" })).json();
+    $("gameline").textContent = `Game ${s.game} · ${s.running ? "in progress" : s.summary ? "ended: " + s.summary.ending : "not started"}`;
+    $("s-moves").textContent = s.robot_moves; $("s-calls").textContent = s.dream_calls; $("s-fixes").textContent = s.self_corrections;
+    $("s-help").textContent = s.human_rescues; $("s-handoffs").textContent = s.handoffs;
+    const body = $("prompts"); body.replaceChildren();
+    for (const p of s.prompts) {
+      const tr = document.createElement("tr"); tr.className = p.kind;
+      const k = document.createElement("td"); k.className = "k"; k.textContent = p.kind === "supervisor" ? "Supervisor, mid-run" : p.attempt;
+      const t = document.createElement("td"); t.className = "p"; t.textContent = p.prompt;
+      tr.append(k, t); body.append(tr);
+    }
+    $("noprompts").hidden = s.prompts.length > 0;
+    const log = $("log"), atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
+    log.replaceChildren(...s.log.map(e => { const d = document.createElement("div"); d.className = e.type; d.textContent = e.text; return d; }));
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  } catch (err) { $("gameline").textContent = "Lost the connection to the app. Is app.py still running?"; }
+  setTimeout(tick, 1500);
+}
+tick();
+</script>

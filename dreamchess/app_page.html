@@ -10,11 +10,10 @@ try { wanted = wanted || localStorage.getItem("dream-chess-theme"); } catch (e) 
 if (wanted === "light") document.documentElement.dataset.theme = "light";
 </script>
 <style>
-/* Dream Chess. One screen, read left to right the way the agent works:
-   the robot's eyes (camera -> detected board), the game it reasons about, and its brain (Dream-1 via DreamAPI).
-   Spacing is on an 8-point grid; system fonts. Dark and orange by default; bright (white and purple) on a toggle. */
+/* Dream Chess. The landing page is for playing: the robot's eyes and the game, side by side. Under them, whether
+   every service the robot needs is connected, then the agent chain, then the details (camera checks, the log).
+   Stats and the instructions sent to Dream-1 live on /stats. Dark and orange by default; bright on a toggle. */
 :root {
-  /* Dark and orange: the default. */
   --bg: #0b0b0d; --card: #161618; --card-2: #1e1e22; --ink: #f5f5f7; --ink-2: #c4c4ca; --ink-3: #8b8b93;
   --line: rgba(255,255,255,.08); --shadow: 0 1px 2px rgba(0,0,0,.6), 0 8px 24px rgba(0,0,0,.35);
   --accent: #ff7a1a; --accent-soft: rgba(255,122,26,.16); --on-accent: #1c0c00;
@@ -29,7 +28,6 @@ if (wanted === "light") document.documentElement.dataset.theme = "light";
   color-scheme: dark;
 }
 :root[data-theme="light"] {
-  /* Bright mode: white, with purple for the logo and accents. */
   --bg: #ffffff; --card: #ffffff; --card-2: #f7f5fc; --ink: #1d1d1f; --ink-2: #515154; --ink-3: #86868b;
   --line: rgba(20,0,60,.09); --shadow: 0 1px 2px rgba(0,0,0,.04), 0 6px 20px rgba(60,30,120,.07);
   --accent: #6d28d9; --accent-soft: #f1eafd; --on-accent: #ffffff;
@@ -43,77 +41,57 @@ if (wanted === "light") document.documentElement.dataset.theme = "light";
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
 button, input { font: inherit; color: inherit; }
+a { color: inherit; }
 [hidden] { display: none !important; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
-/* App bar: translucent material, like a toolbar. */
+/* App bar. */
 .mark { width: 34px; height: 34px; flex: none; filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--logo-cloud) 35%, transparent)); }
-.mark.big { width: 44px; height: 44px; }
-.btn.icon { display: inline-flex; align-items: center; gap: 8px; }
-.btn.icon svg { width: 16px; height: 16px; }
-.bar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-  padding: calc(12px + env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-right)) 12px max(24px, env(safe-area-inset-left));
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px max(24px, env(safe-area-inset-right)) 12px max(24px, env(safe-area-inset-left));
   background: color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 10px; font: 600 19px/1 var(--display); letter-spacing: -.01em; }
-.logo { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--on-accent);
-  background: linear-gradient(135deg, var(--brand), var(--brand-2)); }
-.chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 99px;
   background: var(--card); border: 1px solid var(--line); font-size: 13px; color: var(--ink-2); white-space: nowrap; }
-.chip b { color: var(--ink); font-weight: 600; }
 .chip.sim { background: var(--amber-soft); color: var(--amber); border-color: transparent; font-weight: 600; }
 .chip.live { background: var(--red-soft); color: var(--red); border-color: transparent; font-weight: 600; }
 .spacer { flex: 1; }
-.btn { height: 36px; padding: 0 16px; border-radius: 99px; border: 1px solid var(--line); background: var(--card);
-  font-weight: 600; font-size: 14px; cursor: pointer; transition: transform .12s, background .2s; }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px; border-radius: 99px; border: 1px solid var(--line);
+  background: var(--card); font-weight: 600; font-size: 14px; cursor: pointer; text-decoration: none; transition: transform .12s, background .2s; }
+.btn svg { width: 16px; height: 16px; }
 .btn:hover { background: var(--card-2); }
 .btn:active { transform: scale(.97); }
 .btn:disabled { opacity: .45; cursor: default; transform: none; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
-.btn.tonal { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
-:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
-.wrap { max-width: 1480px; margin: 0 auto; padding: 24px max(24px, env(safe-area-inset-left)) 48px; display: grid; gap: 16px; }
+.wrap { max-width: 1480px; margin: 0 auto; padding: 24px max(24px, env(safe-area-inset-left)) 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .banner { padding: 12px 16px; border-radius: var(--r-sm); background: var(--red-soft); color: var(--red); font-weight: 600; }
 .banner.end { background: var(--green-soft); color: var(--green); }
 .card { border: 1px solid var(--line); background: var(--card); border-radius: var(--r); box-shadow: var(--shadow); padding: 20px; min-width: 0; }
 .card h2 { margin: 0; font: 600 17px/1.3 var(--display); letter-spacing: -.01em; }
-.sub { margin: 4px 0 16px; color: var(--ink-3); font-size: 13px; }
+.sub { margin: 4px 0 0; color: var(--ink-3); font-size: 13px; }
 .eyebrow { font-size: 12px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; }
-
-/* The agent loop: how the parts fit together, lit up as each one works. */
-.loop { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; align-items: stretch; position: relative; }
-.node { position: relative; display: grid; gap: 4px; justify-items: center; text-align: center; padding: 12px 8px;
-  border-radius: 14px; transition: background .3s, box-shadow .3s; }
-.node .ico { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--card-2);
-  border: 1px solid var(--line); color: var(--ink-2); transition: all .3s; }
-.node .ico svg { width: 22px; height: 22px; }
-.node .t { font-weight: 600; font-size: 14px; }
-.node .d { font-size: 12px; color: var(--ink-3); line-height: 1.3; }
-.node:not(:last-child)::after { content: ""; position: absolute; top: 34px; right: -12px; width: 24px; height: 2px;
-  background: var(--line); }
-.node.on .ico { background: var(--accent); color: var(--on-accent); border-color: transparent; box-shadow: 0 0 0 6px var(--accent-soft); }
-.node.brain .ico { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: var(--on-accent); border-color: transparent; }
-.node.brain { background: var(--brand-soft); }
-.node.brain .t { color: var(--brand); }
-.node.brain.on .ico { box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand) 25%, transparent); animation: pulse 1.4s ease-in-out infinite; }
-@keyframes pulse { 50% { box-shadow: 0 0 0 12px color-mix(in srgb, var(--brand) 8%, transparent); } }
-@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
-
-.grid { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(360px, 1.15fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
-@media (max-width: 1180px) { .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .grid > .brain-col { grid-column: 1 / -1; } }
-@media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } .loop { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 8px; }
-  .node:nth-child(3)::after { display: none; } .wrap { padding-inline: 16px; } .bar { padding-inline: 16px; } }
-.col { display: grid; gap: 16px; min-width: 0; }
-
-/* Segmented control. */
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+.status.ok { background: var(--green-soft); color: var(--green); }
+.status.bad { background: var(--red-soft); color: var(--red); }
+.status.wait { background: var(--bg); color: var(--ink-3); }
+.status.moving { background: var(--brand-soft); color: var(--brand); }
+.status.moving::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .25; } }
 .seg { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); }
 .seg button { border: 0; background: transparent; padding: 4px 12px; border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; color: var(--ink-2); }
 .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 600; }
-.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 
-/* Perception: the camera frame, then the board the vision code read from it. */
+/* The two main parts: the robot's eyes and the game. */
+.col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
+.stage { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .wrap, .bar { padding-inline: 16px; } }
+
 .cam { position: relative; margin-top: 12px; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #111; }
 .cam img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .25s; }
 .cam img.zoom { transform: scale(1.55); transform-origin: 50% 52%; }
@@ -121,86 +99,94 @@ button, input { font: inherit; color: inherit; }
 .cam .tag { position: absolute; left: 8px; top: 8px; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;
   color: #fff; background: rgba(0,0,0,.55); backdrop-filter: blur(8px); }
 .cam .live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #ff453a; margin-right: 6px; vertical-align: 1px; }
-.flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0; }
-.flow div { padding: 8px; border-radius: var(--r-sm); background: var(--card-2); border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
-.flow b { display: block; color: var(--ink); font-size: 13px; margin-bottom: 2px; }
-.detect { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
-.status.ok { background: var(--green-soft); color: var(--green); }
-.status.bad { background: var(--red-soft); color: var(--red); }
-.status.wait { background: var(--bg); color: var(--ink-3); }
-.legend { display: grid; gap: 6px; font-size: 12px; color: var(--ink-2); }
-.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+/* The agents' hand-offs, over the live view: who passed what to whom, the latest at the bottom. */
+.handoffs { position: absolute; left: 8px; right: 8px; bottom: 8px; margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; pointer-events: none; }
+.handoffs li { justify-self: start; max-width: 100%; padding: 6px 10px; border-radius: 10px; font-size: 12px; line-height: 1.35; color: #fff;
+  background: rgba(10,10,12,.72); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,.12); animation: rise .3s ease-out; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.handoffs li b { color: #ffb347; font-weight: 600; }
+.handoffs li.old { opacity: .55; }
+.handoffs li.bad b { color: #ff8a80; }
+@keyframes rise { from { transform: translateY(8px); opacity: 0; } }
 
-/* Boards. */
+/* The game: the robot above the board, you below it. */
+.player { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+.avatar { position: relative; width: 48px; height: 48px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  background: var(--card-2); border: 1px solid var(--line); }
+.avatar svg { width: 32px; height: 32px; }
+.avatar.robot { background: color-mix(in srgb, var(--brand) 14%, var(--card)); }
+/* While the robot speaks, its picture turns into rings that move with the sound. */
+.avatar .ring { position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--brand); opacity: 0; transform: scale(.9);
+  transition: opacity .15s, transform .08s linear; pointer-events: none; }
+.avatar .ring.r2 { inset: -9px; border-width: 1.5px; }
+.avatar.speaking .ring { opacity: 1; }
+.avatar.speaking.estimated .ring { animation: speak 1s ease-in-out infinite; }
+.avatar.speaking.estimated .ring.r2 { animation-delay: -.4s; }
+@keyframes speak { 50% { transform: scale(1.08); opacity: .5; } }
+.who { flex: 1; min-width: 0; }
+.who .nm { font-weight: 600; }
+.who .fine { font-size: 11px; color: var(--ink-3); }
+.who .said { font-size: 13px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); cursor: pointer; user-select: none; }
+.switch input { appearance: none; width: 34px; height: 20px; border-radius: 99px; background: var(--card-2); border: 1px solid var(--line);
+  position: relative; cursor: pointer; transition: background .2s; margin: 0; }
+.switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink-3); transition: transform .2s, background .2s; }
+.switch input:checked { background: var(--accent); border-color: transparent; }
+.switch input:checked::after { transform: translateX(14px); background: var(--on-accent); }
+.switch input:disabled { opacity: .45; cursor: default; }
+.trying { font-size: 13px; color: var(--brand); font-weight: 600; }
+
 .board { display: grid; grid-template: repeat(8, 1fr) / repeat(8, 1fr); aspect-ratio: 1; border-radius: 10px; overflow: hidden; user-select: none;
   box-shadow: 0 0 0 1px var(--line); }
 .sq { position: relative; display: grid; place-items: center; }
 .sq.l { background: var(--light-sq); } .sq.d { background: var(--dark-sq); }
 .sq::after { content: ""; position: absolute; inset: 0; pointer-events: none; transition: box-shadow .2s, background .2s; }
-.sq.last::after { background: rgba(255, 214, 10, .32); }
+.sq.last::after { background: rgba(255, 214, 10, .22); }
 .sq.from::after { box-shadow: inset 0 0 0 4px var(--brand); }
-.sq.to::after { box-shadow: inset 0 0 0 4px var(--brand-2); background: color-mix(in srgb, var(--brand-2) 18%, transparent); }
+.sq.to::after { box-shadow: inset 0 0 0 4px var(--brand-2); background: color-mix(in srgb, var(--brand-2) 22%, transparent); animation: target 1.2s ease-in-out infinite; }
+@keyframes target { 50% { background: color-mix(in srgb, var(--brand-2) 6%, transparent); } }
 .sq.pick::after { box-shadow: inset 0 0 0 4px var(--accent); }
 .sq.click { cursor: pointer; }
 .sq.miss::after { box-shadow: inset 0 0 0 3px var(--red); }
 .sq.extra::after { box-shadow: inset 0 0 0 3px var(--amber); background: color-mix(in srgb, var(--amber) 22%, transparent); }
 .coord { position: absolute; font-size: 10px; font-weight: 600; color: rgba(0,0,0,.42); }
 .coord.rk { left: 4px; top: 2px; } .coord.fl { right: 4px; bottom: 1px; }
-.pc { font-size: clamp(22px, 4.2vw, 46px); line-height: 1; font-family: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2", serif; }
+.pc { font-size: clamp(22px, 3.6vw, 44px); line-height: 1; font-family: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2", serif; }
 .pc.w { color: var(--ivory); -webkit-text-stroke: 1.2px #2b2118; text-shadow: 0 2px 2px rgba(0,0,0,.25); }
 .pc.b { color: var(--brown); -webkit-text-stroke: .6px #2b160a; text-shadow: 0 2px 2px rgba(0,0,0,.3); }
 .mini .pc { font-size: clamp(13px, 2.1vw, 22px); }
-/* Seen from the robot's side: the board turns around, the pieces and labels stay upright. */
-.board.flipped { transform: rotate(180deg); }
-.board.flipped .pc, .board.flipped .coord, .board.flipped .dot { transform: rotate(180deg); }
 .mini .pc.unknown { opacity: .85; }
+.board.flipped { transform: rotate(180deg); }
+.board.flipped .pc, .board.flipped .coord { transform: rotate(180deg); }
 .setup-tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; vertical-align: 2px; }
-.dot { width: 56%; aspect-ratio: 1; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,.35); }
-.dot.w { background: var(--ivory); border: 2px solid #2b2118; } .dot.b { background: var(--brown); border: 2px solid #2b160a; }
-.boardhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-.side { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-3); margin: 8px 2px; }
-.turn { font-weight: 600; } .incheck { color: var(--red); font-weight: 700; }
+.incheck { color: var(--red); font-weight: 700; }
 
-/* The question for the person: a sheet that appears under the board. */
-.ask { margin-top: 16px; padding: 16px; border-radius: 14px; background: var(--card-2); border: 1px solid var(--line); transition: all .25s; }
+.ask { margin-top: 12px; padding: 16px; border-radius: 14px; background: var(--card-2); border: 1px solid var(--line); transition: all .25s; }
 .ask.on { background: var(--accent-soft); border-color: transparent; }
 .ask .q { font-weight: 600; }
 .ask .hint { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
 .ask .row { justify-content: flex-start; margin-top: 12px; }
 .ask input { height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); min-width: 0; flex: 1 1 140px; }
+.askerr { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--red-soft); color: var(--red); font-size: 14px; }
+.askerr b { display: block; }
+.asknote { margin-top: 8px; font-size: 13px; color: var(--brand); font-weight: 600; }
 
-/* Brain: Dream-1 via DreamAPI. */
-.brain-card { position: relative; overflow: hidden; }
-/* The robot's voice: LiveKit, the way Dream-1 is the brain. Bars that move only while it speaks. */
-.voice-card { position: relative; overflow: hidden; padding: 16px 20px; }
-.voice-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: linear-gradient(90deg, var(--brand-2), var(--brand)); }
-.voicehead { display: flex; align-items: center; gap: 12px; }
-.voicehead h2 { font-size: 15px; }
-.wave { display: flex; align-items: center; gap: 3px; height: 32px; width: 46px; flex: none; }
-.wave i { flex: 1; height: 6px; border-radius: 3px; background: var(--brand); opacity: .45; transition: height .08s linear, opacity .2s; }
-.voice-card.speaking .wave i { opacity: 1; }
-.voice-card.speaking.estimated .wave i { animation: talk .9s ease-in-out infinite; }
-.voice-card.speaking.estimated .wave i:nth-child(2) { animation-delay: -.7s; } .voice-card.speaking.estimated .wave i:nth-child(3) { animation-delay: -.3s; }
-.voice-card.speaking.estimated .wave i:nth-child(4) { animation-delay: -.5s; } .voice-card.speaking.estimated .wave i:nth-child(5) { animation-delay: -.15s; }
-@keyframes talk { 0%, 100% { height: 6px; } 50% { height: 28px; } }
-.voiceline { margin-top: 10px; font: 500 14px/1.4 var(--display); }
-.voiceline.none { color: var(--ink-3); font-weight: 400; }
-.voice-card .sub { margin: 2px 0 0; }
-.brain-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: linear-gradient(90deg, var(--brand), var(--brand-2)); }
-.brainhead { display: flex; gap: 12px; align-items: center; }
-.brainhead .logo { width: 40px; height: 40px; border-radius: 12px; }
-.state { margin-left: auto; }
-.state.moving { background: var(--brand-soft); color: var(--brand); }
-.state.moving::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: blink 1s infinite; }
-@keyframes blink { 50% { opacity: .25; } }
-.instr { margin: 16px 0; padding: 16px; border-radius: 12px; background: var(--card-2); border: 1px solid var(--line); }
-.instr .text { font: 500 17px/1.4 var(--display); margin-top: 6px; letter-spacing: -.01em; }
-.instr .text.none { color: var(--ink-3); font-size: 15px; }
-.kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+/* Connected services: is everything the robot needs reachable, and how fast is it answering. */
+.svcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); gap: 8px; margin-top: 16px; }
+.svc { display: grid; grid-template-columns: 10px 1fr; gap: 2px 10px; align-items: center; padding: 10px 12px; border-radius: 10px;
+  background: var(--card-2); border: 1px solid var(--line); min-width: 0; }
+.svc i { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); }
+.svc.ok i { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+.svc.warn i { background: var(--amber); box-shadow: 0 0 0 3px var(--amber-soft); }
+.svc.bad i { background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
+.svc.placeholder { border-style: dashed; }
+.svc.placeholder i { background: transparent; border: 2px dashed var(--ink-3); }
+.svc b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc span { grid-column: 2; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr)); gap: 8px; margin-top: 8px; }
 .kv div { padding: 10px 12px; border-radius: 10px; background: var(--card-2); border: 1px solid var(--line); min-width: 0; }
 .kv span { display: block; font-size: 11px; color: var(--ink-3); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-.kv b { display: block; font: 600 17px var(--display); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv b { display: block; font: 600 16px var(--display); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .warm { margin: 16px 0 0; padding: 12px 16px; border-radius: 12px; background: var(--brand-soft); border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent); }
 .warm .t { font-weight: 600; color: var(--brand); display: flex; justify-content: space-between; gap: 8px; }
 .warm .d { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
@@ -210,57 +196,51 @@ button, input { font: inherit; color: inherit; }
 .bar-track i { display: block; height: 100%; width: 35%; border-radius: 4px; background: var(--brand); animation: slide 1.6s ease-in-out infinite; }
 .warm.ready .bar-track, .warm.error .bar-track { display: none; }
 @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
+
+/* The agent chain: each agent, lit while it works. Dashed ones are slots the system still needs. */
+.chain { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
+@media (max-width: 900px) { .chain { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .chain { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.node { display: grid; gap: 4px; justify-items: center; text-align: center; padding: 12px 8px; border-radius: 14px;
+  border: 1px solid var(--line); background: var(--card-2); transition: background .3s, box-shadow .3s; }
+.node .ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--bg);
+  border: 1px solid var(--line); color: var(--ink-2); transition: all .3s; }
+.node .ico svg { width: 20px; height: 20px; }
+.node .t { font-weight: 600; font-size: 13px; }
+.node .d { font-size: 11px; color: var(--ink-3); line-height: 1.3; }
+.node.on { background: var(--accent-soft); border-color: transparent; }
+.node.on .ico { background: var(--accent); color: var(--on-accent); border-color: transparent; box-shadow: 0 0 0 5px var(--accent-soft); }
+.node.brain .ico { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: var(--on-accent); border-color: transparent; }
+.node.brain.on .ico { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--brand) 8%, transparent); } }
+.node.slot { border-style: dashed; background: transparent; }
+.node.slot .ico { border-style: dashed; background: transparent; color: var(--ink-3); }
+.node .tagline { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--amber); }
+.note { font-size: 13px; color: var(--ink-2); margin: 12px 0 0; }
+
+/* Details, collapsed: what the top camera expects, and the activity log. */
+details.card > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 12px; }
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary .chev { margin-left: auto; transition: transform .2s; color: var(--ink-3); flex: none; }
+details.card[open] > summary .chev { transform: rotate(180deg); }
+.flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0; }
+.flow div { padding: 8px; border-radius: var(--r-sm); background: var(--card-2); border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
+.flow b { display: block; color: var(--ink); font-size: 13px; margin-bottom: 2px; }
+.detect { display: grid; grid-template-columns: minmax(0, 240px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 520px) { .detect { grid-template-columns: minmax(0, 1fr); } }
+.legend { display: grid; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .calib { margin: 16px 0; padding: 16px; border-radius: 12px; background: var(--accent-soft); }
 .calib .t { font-weight: 600; }
-.calib summary { cursor: pointer; list-style: revert; }
 .calib.on { background: var(--green-soft); } .calib.on .t { color: var(--green); }
-.calib ol { margin: 0; padding-left: 20px; display: grid; gap: 12px; font-size: 13px; color: var(--ink-2); }
+.calib ol { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 12px; font-size: 13px; color: var(--ink-2); }
 .calib li.done { color: var(--green); }
 .calib .row { justify-content: flex-start; margin-top: 8px; }
-.calib select { height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 0 8px; }
 .calib .msg { margin-top: 12px; font-size: 13px; font-weight: 600; }
 .calib .msg.bad { color: var(--red); } .calib .msg.ok { color: var(--green); }
-.askerr { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--red-soft); color: var(--red); font-size: 14px; }
-.askerr b { display: block; }
-.asknote { margin-top: 8px; font-size: 13px; color: var(--brand); font-weight: 600; }
-.explain { font-size: 13px; color: var(--ink-2); margin: 16px 0 0; }
-.explain code { font: 12px var(--mono); background: var(--bg); padding: 1px 6px; border-radius: 5px; }
-
-/* Pipeline steps. */
-.steps { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 4px; }
-.step { display: grid; grid-template-columns: 24px 1fr; gap: 0 12px; padding: 8px; border-radius: 10px; transition: background .25s; }
-.step .n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700;
-  background: var(--bg); color: var(--ink-3); border: 1px solid var(--line); }
-.step .nm { font-weight: 600; font-size: 14px; }
-.step .nm small { font-weight: 400; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
-.step .dt { grid-column: 2; font-size: 13px; color: var(--ink-2); }
-.step .dt:empty { display: none; }
-.step.active { background: var(--accent-soft); } .step.active .n { background: var(--accent); color: var(--on-accent); border-color: transparent; }
-.step.done .n { background: var(--green); color: #fff; border-color: transparent; }
-.step.failed { background: var(--red-soft); } .step.failed .n { background: var(--red); color: #fff; border-color: transparent; }
-.step.how.active { background: var(--brand-soft); } .step.how.active .n { background: var(--brand); }
-.step .prompt { margin-top: 4px; font: 12px/1.4 var(--mono); color: var(--ink); }
-/* Commands to Dream-1 this move: the last five, one line each, scrolling; click one to read it whole. */
-.cmds { list-style: none; margin: 6px 0 0; padding: 0; max-height: 140px; overflow-y: auto; display: grid; gap: 4px; }
-.cmd { font: 12px/1.35 var(--mono); padding: 4px 8px; border-radius: 6px; background: var(--card-2);
-  border: 1px solid var(--line); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.cmd.open { white-space: normal; }
-.cmd.sup { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 30%, transparent); }
-.cmd .cmdn { color: var(--ink-3); margin-right: 6px; }
-
-.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.stat { border: 1px solid var(--line); padding: 12px; border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
-.stat b { display: block; font: 600 24px/1.1 var(--display); font-variant-numeric: tabular-nums; }
-.stat span { font-size: 12px; color: var(--ink-3); }
-
-/* Activity log: collapsed to its latest line; open for the full record. */
-.log { padding: 0; }
-.log summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 14px 20px; }
-.log summary::-webkit-details-marker { display: none; }
-.log summary .latest { flex: 1; min-width: 0; color: var(--ink-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.log summary .chev { transition: transform .2s; color: var(--ink-3); }
-.log[open] summary .chev { transform: rotate(180deg); }
-.log .lines { max-height: 320px; overflow: auto; padding: 0 20px 16px; font: 12px/1.6 var(--mono); color: var(--ink-2); border-top: 1px solid var(--line); }
+.log > summary .latest { flex: 1; min-width: 0; color: var(--ink-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log .lines { margin-top: 12px; max-height: 280px; overflow: auto; padding: 12px; border-radius: 10px; background: var(--bg);
+  border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--ink-2); }
 .log .lines div { padding: 2px 0; } .log .lines .err { color: var(--red); }
 .log .lines time { color: var(--ink-3); margin-right: 8px; }
 </style>
@@ -274,13 +254,10 @@ button, input { font: inherit; color: inherit; }
     <ellipse cx="16.6" cy="23.6" rx="2.3" ry="2.9" fill="var(--logo-eye)"/><ellipse cx="23.4" cy="23.6" rx="2.3" ry="2.9" fill="var(--logo-eye)"/>
     <circle cx="17.1" cy="24.3" r="1.25" fill="var(--logo-pupil)"/><circle cx="23.9" cy="24.3" r="1.25" fill="var(--logo-pupil)"/>
   </svg>Dream Chess</div>
-  <div class="chips">
-    <span class="chip" id="mode">Connecting</span>
-    <span class="chip">Brain <b id="model">Dream-1</b></span>
-    <span class="chip">Engine <b id="engine">starting</b></span>
-  </div>
+  <span class="chip" id="mode">Connecting</span>
   <span class="spacer"></span>
-  <button class="btn icon" id="theme" type="button" aria-pressed="false"></button>
+  <button class="btn" id="theme" type="button" aria-pressed="false"></button>
+  <a class="btn" href="/stats" target="_blank" rel="noopener">Stats &amp; logs</a>
   <button class="btn" id="newgame" type="button">Restart game</button>
   <button class="btn danger" id="stoparms" type="button" hidden>Stop the arms</button>
 </header>
@@ -288,85 +265,48 @@ button, input { font: inherit; color: inherit; }
 <main class="wrap">
   <div class="banner" id="banner" role="status" hidden></div>
 
-  <section class="card" aria-labelledby="loop-h">
-    <div class="row"><div><h2 id="loop-h">How the agent plays</h2>
-      <p class="sub" style="margin-bottom:8px">One loop per move. The agent decides; Dream-1 moves the pieces; the camera checks the result.</p></div>
-      <span class="status wait" id="loopstate">Waiting</span></div>
-    <div class="loop" id="loop">
-      <div class="node" data-n="eyes"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></div>
-        <div class="t">Eyes</div><div class="d">Camera reads the board</div></div>
-      <div class="node" data-n="agent"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></div>
-        <div class="t">Agent</div><div class="d">Runs the loop, keeps the game</div></div>
-      <div class="node" data-n="engine"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M7 16l2-9 3 3 3-3 2 9"/></svg></div>
-        <div class="t">Stockfish</div><div class="d">What and where to move</div></div>
-      <div class="node brain" data-n="brain"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3.2"/></svg></div>
-        <div class="t">Dream-1</div><div class="d">The robot's brain, via DreamAPI</div></div>
-      <div class="node" data-n="arms"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h6M7 20v-6l5-5 4 2M16 11l3-3M16 11l2 3"/><circle cx="7" cy="14" r="1.5"/><circle cx="12" cy="9" r="1.5"/></svg></div>
-        <div class="t">Arms</div><div class="d">Two YAM arms move it</div></div>
-      <div class="node" data-n="check"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 5 5 9-10"/></svg></div>
-        <div class="t">Check</div><div class="d">Did the piece land?</div></div>
-    </div>
-  </section>
-
-  <div class="stats" aria-label="Game statistics">
-    <div class="stat"><b id="s-moves">0</b><span>Robot moves</span></div>
-    <div class="stat"><b id="s-attempts">0</b><span>Dream-1 calls</span></div>
-    <div class="stat"><b id="s-fixes">0</b><span>Self-corrections</span></div>
-    <div class="stat"><b id="s-help">0</b><span>Human rescues</span></div>
-  </div>
-
-  <div class="grid">
-    <!-- The robot's eyes -->
-    <section class="card col-card" aria-labelledby="eyes-h">
+  <div class="stage">
+    <div class="col">
+    <!-- The robot's eyes, with the agents' hand-offs over them -->
+    <section class="card" aria-labelledby="eyes-h">
       <div class="row"><h2 id="eyes-h">The robot's eyes</h2>
         <div class="seg" role="group" aria-label="Camera view" id="camseg"></div></div>
-      <p class="sub" id="eyes-sub">The top camera, seen from the robot's side of the board.</p>
       <div class="cam"><img id="cam" alt="The robot's camera view of the board" hidden>
-        <div class="empty" id="camempty">Starting the camera...</div><span class="tag" id="camtag"></span></div>
-      <details class="calib" id="calib" hidden>
-        <summary><span class="t" id="calib-title">Camera checks: off (optional)</span></summary>
-        <div class="d" style="font-size:13px;color:var(--ink-2);margin:8px 0 12px">With camera checks on, the top camera
-          looks at the board after every robot step and catches a piece that didn't land, and reads your moves
-          for you. Without them, you confirm each step. Setting it up takes two pictures, about a minute; the arms
-          stay still.</div>
-        <ol>
-          <li id="cal1">Take every piece off the board.
-            <div class="row"><button class="btn primary" id="cal-empty" type="button">Capture the empty board</button></div></li>
-          <li id="calc" hidden>Couldn't find the board by itself. On the picture above, click the corners of the
-            playing area in this order: <b>a1</b> (White's left), <b>h1</b>, <b>h8</b>, <b>a8</b>.
-            <div class="row"><span id="cal-clicks">0 of 4</span><button class="btn" id="cal-redo" type="button">Start the clicks over</button></div></li>
-          <li id="cal2">Set up the standard starting position, White on the a1 side.
-            <div class="row"><button class="btn primary" id="cal-start" type="button" disabled>Capture the starting position</button></div></li>
-        </ol>
-        <div class="msg" id="cal-msg" role="status"></div>
-      </details>
-      <div class="flow" id="flow">
-        <div><b>1. Capture</b>A frame from the camera above the board.</div>
-        <div><b>2. Locate</b>Find the 64 squares from calibration.</div>
-        <div><b>3. Classify</b>Each square: empty, white, or brown.</div>
-      </div>
-      <div class="detect">
-        <div><div class="eyebrow" style="margin-bottom:8px" id="detected-h">What it detected</div><div class="board mini" id="seen"></div></div>
-        <div class="legend">
-          <span class="status wait" id="agree">Calibrating</span>
-          <span id="agree-why" style="font-size:13px"></span>
-          <span id="vision-note" style="font-size:12px;color:var(--ink-3)">The camera sees each piece's color; its type comes from the game.</span>
-          <span><i style="box-shadow:inset 0 0 0 2px var(--red)"></i>Should be a piece here</span>
-          <span><i style="background:color-mix(in srgb,var(--amber) 40%,transparent);box-shadow:inset 0 0 0 2px var(--amber)"></i>Unexpected piece</span>
-        </div>
+        <div class="empty" id="camempty">Starting the camera...</div><span class="tag" id="camtag"></span>
+        <ol class="handoffs" id="handoffs" aria-label="What the agents are passing to each other" aria-live="polite"></ol></div>
+      <p class="sub" id="eyes-sub">The top camera, seen from the robot's side of the board.</p>
+    </section>
+    <!-- Connected services -->
+    <section class="card" aria-labelledby="svc-h">
+      <div class="row"><div><h2 id="svc-h">Connected services</h2>
+        <p class="sub">Everything the robot needs to play. Dashed ones are agents the system still needs; they use a stand-in for now.</p></div>
+        <span class="status wait" id="brainstate">Idle</span></div>
+      <div class="svcs" id="svcs"></div>
+      <div class="warm" id="warm" hidden><div class="t"><span id="warm-t"></span><span id="warm-time"></span></div>
+        <div class="d" id="warm-d"></div><div class="bar-track"><i></i></div></div>
+      <div class="kv">
+        <div><span>Model</span><b id="b-model">–</b></div>
+        <div data-live><span>Round trip</span><b id="b-rtt">–</b></div>
+        <div data-live><span>Inference</span><b id="b-infer">–</b></div>
+        <div><span>Last run</span><b id="b-secs">–</b></div>
+        <div data-live><span>Last run ended</span><b id="b-when">–</b></div>
+        <div data-live><span>Action chunks</span><b id="b-chunks">–</b></div>
+        <div data-live style="grid-column: 1 / -1"><span>The hand, watched live</span><b id="b-hand">–</b></div>
       </div>
     </section>
 
+    </div>
+
     <!-- The game -->
     <section class="card" aria-labelledby="board-h">
-      <div class="boardhead"><h2 id="board-h">The game<span class="setup-tag" id="setuptag" hidden>Set up like this</span></h2>
-        <span><span class="turn" id="turn"></span> <span class="incheck" id="checkflag"></span></span></div>
-      <div class="row" style="margin-bottom:8px"><div class="seg" role="group" aria-label="Which side to see the board from" id="sideseg">
-        <button type="button" aria-pressed="true" data-side="white">From your side</button>
-        <button type="button" aria-pressed="false" data-side="robot">From the robot's side</button></div></div>
-      <div class="side"><span id="far-side">Robot · Brown</span><span id="robotmove"></span></div>
+      <div class="row"><h2 id="board-h">The game<span class="setup-tag" id="setuptag" hidden>Set up like this</span>
+        <span class="incheck" id="checkflag"></span></h2>
+        <div class="seg" role="group" aria-label="Which side to see the board from" id="sideseg">
+          <button type="button" aria-pressed="true" data-side="white">Your side</button>
+          <button type="button" aria-pressed="false" data-side="robot">Robot's side</button></div></div>
+      <div class="player" id="far-player"></div>
       <div class="board" id="board"></div>
-      <div class="side"><span id="near-side">You · White</span><span id="lastmove"></span></div>
+      <div class="player" id="near-player"></div>
       <div class="ask" id="ask" aria-live="polite">
         <div class="q" id="askq">Starting...</div>
         <div class="hint" id="askhint"></div>
@@ -375,53 +315,73 @@ button, input { font: inherit; color: inherit; }
         <div class="row" id="askrow"></div>
       </div>
     </section>
-
-    <!-- The brain -->
-    <div class="col brain-col">
-      <section class="card brain-card" aria-labelledby="brain-h">
-        <div class="brainhead"><svg class="mark big" viewBox="0 0 40 40" aria-hidden="true">
-    <g fill="var(--logo-cloud)"><circle cx="12" cy="25.5" r="7"/><circle cx="20" cy="21" r="9"/><circle cx="28.5" cy="26" r="6.5"/>
-      <rect x="12" y="24.5" width="16.5" height="8" rx="2"/></g>
-    <ellipse cx="16.6" cy="23.6" rx="2.3" ry="2.9" fill="var(--logo-eye)"/><ellipse cx="23.4" cy="23.6" rx="2.3" ry="2.9" fill="var(--logo-eye)"/>
-    <circle cx="17.1" cy="24.3" r="1.25" fill="var(--logo-pupil)"/><circle cx="23.9" cy="24.3" r="1.25" fill="var(--logo-pupil)"/>
-  </svg>
-          <div><h2 id="brain-h">The robot's brain</h2><div class="sub" style="margin:0">Dream-1 via DreamAPI · <span id="brainmodel"></span></div></div>
-          <span class="status wait state" id="brainstate">Idle</span></div>
-        <div class="warm" id="warm" hidden><div class="t"><span id="warm-t"></span><span id="warm-time"></span></div>
-          <div class="d" id="warm-d"></div><div class="bar-track"><i></i></div></div>
-        <div class="instr"><div class="eyebrow">Instruction from the agent</div>
-          <div class="text none" id="instr">Waiting for the agent's first instruction.</div></div>
-        <div class="kv">
-          <div><span>Arm</span><b id="b-arm">–</b></div>
-          <div><span>Attempt</span><b id="b-attempt">–</b></div>
-          <div><span>Last run</span><b id="b-secs">–</b></div>
-          <div data-live><span>Round trip</span><b id="b-rtt">–</b></div>
-          <div data-live><span>Inference</span><b id="b-infer">–</b></div>
-          <div data-live><span>Action chunks</span><b id="b-chunks">–</b></div>
-          <div data-live style="grid-column: 1 / -1"><span>The hand, watched live</span><b id="b-hand">–</b></div>
-        </div>
-        <p class="explain" id="brainexplain">Dream-1 is a vision-language-action model. It knows nothing about chess:
-          each step, it gets the three camera views and one plain sentence, and streams motion to both arms
-          at 20 Hz. The agent decides what to say; Dream-1 decides how to move.</p>
-      </section>
-
-      <section class="card voice-card" id="voicecard" aria-labelledby="voice-h" hidden>
-        <div class="voicehead">
-          <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-          <div style="flex:1;min-width:0"><h2 id="voice-h">The robot's voice</h2>
-            <div class="sub">LiveKit is the voice, the way Dream-1 is the brain: it says each move and reacts to yours.</div></div>
-          <button class="btn tonal" id="listen" type="button" hidden>Listen</button>
-          <span class="status wait" id="voicestate">Silent</span>
-        </div>
-        <div class="voiceline none" id="voiceline" aria-live="polite">Nothing said yet.</div>
-      </section>
-      <section class="card" aria-labelledby="steps-h">
-        <h2 id="steps-h">This move, step by step</h2>
-        <ol class="steps" id="steps"></ol>
-      </section>
-    </div>
   </div>
 
+  <!-- The two players, moved into place by showSide(). -->
+  <template id="robot-tpl">
+    <div class="avatar robot" id="robotavatar"><span class="ring"></span><span class="ring r2"></span>
+      <svg viewBox="0 0 40 40" aria-hidden="true"><g fill="var(--logo-cloud)"><circle cx="12" cy="25.5" r="7"/><circle cx="20" cy="21" r="9"/>
+        <circle cx="28.5" cy="26" r="6.5"/><rect x="12" y="24.5" width="16.5" height="8" rx="2"/></g>
+        <ellipse cx="16.6" cy="23.6" rx="2.3" ry="2.9" fill="var(--logo-eye)"/><ellipse cx="23.4" cy="23.6" rx="2.3" ry="2.9" fill="var(--logo-eye)"/>
+        <circle cx="17.1" cy="24.3" r="1.25" fill="var(--logo-pupil)"/><circle cx="23.9" cy="24.3" r="1.25" fill="var(--logo-pupil)"/></svg></div>
+    <div class="who"><div class="nm">Robot · Brown <span class="trying" id="trying"></span></div>
+      <div class="said" id="voiceline" aria-live="polite"></div>
+      <div class="fine" id="voicecredit">Voice powered by LiveKit</div></div>
+    <label class="switch" id="audiowrap"><input type="checkbox" id="audio" aria-label="The robot's voice: audio on or off"><span id="audiolabel">Audio</span></label>
+  </template>
+  <template id="human-tpl">
+    <div class="avatar"><svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="1.8" aria-hidden="true">
+      <circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.2-3.8 4.1-5.6 7.5-5.6s6.3 1.8 7.5 5.6"/></svg></div>
+    <div class="who"><div class="nm">You · White</div><div class="fine" id="turn"></div></div>
+  </template>
+
+  <!-- The agent chain -->
+  <section class="card" aria-labelledby="chain-h">
+    <div class="row"><div><h2 id="chain-h">The agent chain</h2>
+      <p class="sub">Who is working right now, and who hands what to whom. The hand-offs also show over the robot's eyes.</p></div>
+      <span class="status wait" id="loopstate">Waiting</span></div>
+    <div class="chain" id="chain"></div>
+    <p class="note">Dashed agents are slots for the LLM agents the system still needs (<code>dreamchess/agents.py</code>).
+      Until one is connected, its stand-in runs: the checker's verdict passes straight through, and retries use the template sentence.</p>
+  </section>
+
+  <!-- What the top camera expects -->
+  <details class="card" id="expects">
+    <summary><h2>What the top camera expects</h2><span class="status wait" id="agree">Calibrating</span>
+      <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg></summary>
+    <div class="calib" id="calib" hidden>
+      <div class="t" id="calib-title">Camera checks: off (optional)</div>
+      <div style="font-size:13px;color:var(--ink-2);margin-top:8px">With camera checks on, the top camera looks at the board after
+        every robot step and catches a piece that didn't land, and reads your moves for you. Without them, you confirm each step.
+        Setting it up takes two pictures, about a minute; the arms stay still. Click corners on the robot's eyes above if asked.</div>
+      <ol>
+        <li id="cal1">Take every piece off the board.
+          <div class="row"><button class="btn primary" id="cal-empty" type="button">Capture the empty board</button></div></li>
+        <li id="calc" hidden>Couldn't find the board by itself. On the picture above, click the corners of the
+          playing area in this order: <b>a1</b> (White's left), <b>h1</b>, <b>h8</b>, <b>a8</b>.
+          <div class="row"><span id="cal-clicks">0 of 4</span><button class="btn" id="cal-redo" type="button">Start the clicks over</button></div></li>
+        <li id="cal2">Set up the standard starting position, White on the a1 side.
+          <div class="row"><button class="btn primary" id="cal-start" type="button" disabled>Capture the starting position</button></div></li>
+      </ol>
+      <div class="msg" id="cal-msg" role="status"></div>
+    </div>
+    <div class="flow">
+      <div><b>1. Capture</b>A frame from the camera above the board.</div>
+      <div><b>2. Locate</b>Find the 64 squares from calibration.</div>
+      <div><b>3. Classify</b>Each square: empty, white, or brown.</div>
+    </div>
+    <div class="detect">
+      <div><div class="eyebrow" style="margin-bottom:8px" id="detected-h">What it detected</div><div class="board mini" id="seen"></div></div>
+      <div class="legend">
+        <span id="agree-why" style="font-size:13px"></span>
+        <span id="vision-note" style="font-size:12px;color:var(--ink-3)">The camera sees each piece's color; its type comes from the game.</span>
+        <span><i style="box-shadow:inset 0 0 0 2px var(--red)"></i>Should be a piece here</span>
+        <span><i style="background:color-mix(in srgb,var(--amber) 40%,transparent);box-shadow:inset 0 0 0 2px var(--amber)"></i>Unexpected piece</span>
+      </div>
+    </div>
+  </details>
+
+  <!-- Activity log -->
   <details class="card log" id="logbox">
     <summary><span class="eyebrow">Activity</span><span class="latest" id="latest">Nothing yet.</span>
       <span class="eyebrow" id="logcount">0</span>
@@ -434,46 +394,86 @@ button, input { font: inherit; color: inherit; }
 const $ = id => document.getElementById(id);
 let lastState = {};  // the latest /state, read by every panel
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const score = cp => Math.abs(cp) >= 90000 ? (cp > 0 ? "a forced mate" : "being mated") : `${cp >= 0 ? "+" : ""}${(cp / 100).toFixed(2)} pawns`;
 
-// --- the pipeline, step by step, and the loop diagram it lights up -------------------------------------------
-const STAGES = [
-  ["opponent", "Your move", "eyes", "camera"],
-  ["what", "What", "engine", "Stockfish"],
-  ["where", "Where", "engine", "Stockfish"],
-  ["how", "How", "brain", "Dream-1"],
-  ["check", "Check", "check", "camera"],
-  ["record", "Record", "agent", "agent"],
+// The players: the robot above the board and you below it, swapped when the board turns around.
+$("far-player").append($("robot-tpl").content.cloneNode(true));
+$("near-player").append($("human-tpl").content.cloneNode(true));
+
+// --- the agent chain -----------------------------------------------------------------------------------------
+const ICON = {
+  orchestrator: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>',
+  engine: '<path d="M4 19h16M7 16l2-9 3 3 3-3 2 9"/>',
+  writer: '<path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13 7 4 4"/>',
+  dream: '<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3.2"/>',
+  supervisor: '<path d="M7 11V6a2 2 0 0 1 4 0v5M11 10V4a2 2 0 0 1 4 0v6M15 10V6a2 2 0 0 1 4 0v7a7 7 0 0 1-14 0v-2a2 2 0 0 1 4 0"/>',
+  checker: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  watcher: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+};
+const CHAIN = [
+  ["orchestrator", "Orchestrator", "Keeps the game and runs the loop"],
+  ["engine", "Chess engine", "Stockfish picks the move"],
+  ["writer", "Prompt writer", "Turns the move into one instruction"],
+  ["dream", "Dream-1", "Moves the arms, via DreamAPI"],
+  ["supervisor", "Supervisor", "Watches the hand mid-move"],
+  ["checker", "Checker", "Did the piece land?"],
+  ["watcher", "Watcher", "Says what went wrong"],
 ];
+const chainNode = {};
+for (const [id, name, desc] of CHAIN) {
+  const el = document.createElement("div"); el.className = "node" + (id === "dream" ? " brain" : "");
+  el.innerHTML = `<div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${ICON[id]}</svg></div>` +
+    `<div class="t">${esc(name)}</div><div class="d">${esc(desc)}</div><div class="tagline" hidden>LLM slot</div>`;
+  $("chain").append(el); chainNode[id] = el;
+}
+// Which agents are slots, from the connected-services list: an agent running its stand-in is drawn dashed.
+function markSlots(services) {
+  const slot = name => (services || []).some(s => s.name.toLowerCase().startsWith(name) && s.state === "placeholder");
+  for (const [id, key] of [["writer", "prompt writer"], ["watcher", "watcher"]]) {
+    chainNode[id].classList.toggle("slot", slot(key)); chainNode[id].querySelector(".tagline").hidden = !slot(key);
+  }
+}
+
+// The game's steps, as the page tracks them. Each lights an agent in the chain.
+const STAGE_AGENT = { opponent: "checker", what: "engine", where: "engine", how: "dream", check: "checker", record: "orchestrator" };
+const STAGE_NAME = { opponent: "Your move", what: "Choosing a piece", where: "Choosing a square", how: "Dream-1 is moving",
+  check: "Checking the board", record: "Recording the move" };
 const stage = {};
-STAGES.forEach(([id, name, node, who], i) => {
-  const li = document.createElement("li"); li.className = "step " + id;
-  li.innerHTML = `<span class="n">${i + 1}</span><div class="nm"></div><div class="dt"></div>`;
-  li.querySelector(".nm").innerHTML = `${esc(name)}<small>${esc(who)}</small>`;
-  $("steps").append(li);
-  stage[id] = { el: li, detail: li.querySelector(".dt"), node, status: "" };
-});
-function setStage(id, status, html) {
-  const s = stage[id]; s.status = status || "";
-  s.el.className = "step " + id + (status ? " " + status : "");
-  if (html !== undefined) s.detail.innerHTML = html;
-  lightLoop();
+for (const id of Object.keys(STAGE_AGENT)) stage[id] = { status: "" };
+const flashUntil = {};  // agents that just did something brief, like the supervisor's re-prompt
+function flash(agent, ms) { flashUntil[agent] = Date.now() + (ms || 2500); lightChain(); }
+function setStage(id, status) { stage[id].status = status || ""; lightChain(); }
+function lightChain() {
+  const on = new Set();
+  for (const [id, s] of Object.entries(stage)) if (s.status === "active") on.add(STAGE_AGENT[id]);
+  if (on.has("dream")) on.add("supervisor");
+  for (const [agent, until] of Object.entries(flashUntil)) if (Date.now() < until) on.add(agent);
+  if (running && !lastState.setup && !on.size) on.add("orchestrator");
+  for (const [id, el] of Object.entries(chainNode)) el.classList.toggle("on", on.has(id));
+  const active = Object.keys(stage).find(id => stage[id].status === "active");
+  $("loopstate").textContent = active ? `Now: ${STAGE_NAME[active]}` : lastState.setup ? "Setting up" : running ? "Thinking" : "Idle";
+  $("loopstate").className = "status " + (active ? "ok" : "wait");
 }
-// The How step: a one-line status, then the commands sent to Dream-1 this move (the last five).
-function howHead(text) {
-  let head = stage.how.detail.querySelector(".howhead");
-  if (!head) { head = document.createElement("div"); head.className = "howhead"; stage.how.detail.prepend(head); }
-  head.textContent = text;
-}
-function addCommand(kind, label, text) {
-  let list = stage.how.detail.querySelector(".cmds");
-  if (!list) { list = document.createElement("ol"); list.className = "cmds"; stage.how.detail.append(list); }
-  const li = document.createElement("li"); li.className = "cmd " + kind; li.title = text;
-  const n = document.createElement("span"); n.className = "cmdn"; n.textContent = label;
-  li.append(n, document.createTextNode(text)); li.onclick = () => li.classList.toggle("open");
+setInterval(lightChain, 1000);
+function resetRobotStages() { for (const id of ["what", "where", "how", "check"]) setStage(id, ""); }
+
+// --- hand-offs, over the robot's eyes --------------------------------------------------------------------------
+const AGENT_LABEL = { orchestrator: "Orchestrator", engine: "Chess engine", writer: "Prompt writer", dream: "Dream-1",
+  supervisor: "Supervisor", checker: "Checker", watcher: "Watcher", you: "You", "prompt writer": "Prompt writer", "dream-1": "Dream-1" };
+function handoff(from, to, text, bad) {
+  const list = $("handoffs"), li = document.createElement("li");
+  li.className = bad ? "bad" : "";
+  li.innerHTML = `<b>${esc(AGENT_LABEL[from] || from)} → ${esc(AGENT_LABEL[to] || to)}</b> ${esc(text)}`;
+  li.title = li.textContent;
   list.append(li);
-  while (list.children.length > 5) list.firstElementChild.remove();
-  list.scrollTop = list.scrollHeight;
+  while (list.children.length > 3) list.firstElementChild.remove();
+  [...list.children].forEach((el, i, all) => el.classList.toggle("old", i < all.length - 1));
+}
+// An instruction, said short: "move the brown rook b8 → b1", without the whole sentence.
+function shortPrompt(text) {
+  const sq = promptSquares(text), piece = (text.match(/\b(brown|white) (pawn|knight|bishop|rook|queen|king|piece)\b/) || [])[0];
+  const arm = (text.match(/your (left|right) arm/) || [])[1];
+  if (!sq.from) return text.length > 70 ? text.slice(0, 67) + "..." : text;
+  return `${arm ? arm + " arm: " : ""}${piece || "the piece"} ${sq.from} → ${sq.to || "the tray"}`;
 }
 // The squares a prompt names, for the board's highlight: "Column (b), Row (8)" or "square b8".
 function promptSquares(text) {
@@ -481,110 +481,89 @@ function promptSquares(text) {
   const sq = found.length ? found : (text.match(/\b[a-h][1-8]\b/g) || []);
   return { from: sq[0] || null, to: sq[1] || null };
 }
-function lightLoop() {
-  const on = new Set();
-  for (const s of Object.values(stage)) if (s.status === "active") on.add(s.node);
-  if (on.has("brain")) on.add("arms");
-  const settingUp = !!lastState.setup;
-  if (running && !settingUp) on.add("agent");
-  document.querySelectorAll(".node").forEach(n => n.classList.toggle("on", on.has(n.dataset.n)));
-  const active = STAGES.find(([id]) => stage[id].status === "active");
-  $("loopstate").textContent = active ? `Now: ${active[1]}` : settingUp ? "Setting up" : running ? "Thinking" : "Idle";
-  $("loopstate").className = "status " + (active ? "ok" : "wait");
-}
-// The record step keeps showing the last move recorded until the next one replaces it.
-function resetRobotStages() { for (const id of ["what", "where", "how", "check"]) setStage(id, "", ""); }
 
-let since = 0, game = null, attempts = 0, fixes = 0, rescues = 0, moves = 0, running = false;
+let since = 0, game = null, running = false;
 let awaitingCheck = false, robotMove = "", highlight = { from: null, to: null }, logCount = 0;
 
 function log(text, cls) {
   const d = document.createElement("div"); if (cls) d.className = cls;
   const t = document.createElement("time"); t.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   d.append(t, document.createTextNode(text)); $("log").prepend(d);
+  while ($("log").children.length > 400) $("log").lastElementChild.remove();
   $("latest").textContent = text; $("logcount").textContent = ++logCount;
 }
 function clearLog() { $("log").innerHTML = ""; logCount = 0; $("logcount").textContent = "0"; $("latest").textContent = "Nothing yet."; }
 function checkPassed() {
   if (!awaitingCheck) return;
   awaitingCheck = false;
-  setStage("check", "done", "The board matches the plan after this step.");
+  setStage("check", "done");
+  handoff("checker", "orchestrator", "the piece landed", false);
 }
 function handle(e) {
-  if (e.game !== game) { game = e.game; attempts = fixes = rescues = moves = 0; robotMove = ""; resetRobotStages();
-    setStage("opponent", "", ""); setStage("record", "", ""); clearLog(); }
-  // A step passed its check when the next real event isn't a failure report. Status lines ("say") and the
-  // person's answers come before a failure report, so they don't count.
-  const failureNext = e.type === "agent" && /^(CHECK|HELP)/.test(e.text);
+  if (e.game !== game) { game = e.game; robotMove = ""; highlight = { from: null, to: null }; resetRobotStages();
+    setStage("opponent", ""); setStage("record", ""); clearLog(); $("handoffs").innerHTML = ""; }
+  // A step passed its check when the next real event isn't a failure report.
+  const failureNext = e.type === "agent" && /^(CHECK|HELP|HANDOFF|AGENT)/.test(e.text);
   if (awaitingCheck && !failureNext && !["attempt", "say", "attempt_result", "help"].includes(e.type)) checkPassed();
   if (e.type === "say") log(e.text);
   if (e.type === "voice") robotSaid(e.text);
-  // The supervisor's calls during a move go under How: what it saw, and what it asked Dream-1 next.
   if (e.type === "say" && /SUPERVISE|ending the run/.test(e.text)) {
     const line = e.text.replace(/^\s*SUPERVISE\s*/, "");
-    addCommand("sup", "\u21b3", line);
+    const ask = line.match(/asking again: (.*)$/);
+    handoff("supervisor", "dream", ask ? `${line.split(":")[0]}: ${shortPrompt(ask[1])}` : line, !!ask);
+    flash("supervisor");
   }
   if (e.type === "agent") log(e.text);
   if (e.type === "error") { log(e.text, "err"); $("banner").textContent = e.text; $("banner").className = "banner"; $("banner").hidden = false; }
-  if (e.type === "game_start") $("engine").textContent = e.engine;
-  if (e.type === "opponent_move") setStage("opponent", "done", `You played <b>${esc(e.san)}</b>.`);
+  if (e.type === "opponent_move") { setStage("opponent", "done"); handoff("you", "orchestrator", `played ${e.san}`); }
   if (e.type === "agent") {
     const [kind, ...rest] = e.text.split(/\s+/); const body = rest.join(" ");
     if (kind === "SEEN") {
       const san = body.replace(/^opponent played /, "");
-      setStage("opponent", "done", `The camera confirms you played <b>${esc(san)}</b>.`);
-      if (robotMove) { moves++; setStage("record", "done", `Recorded the robot's <b>${esc(robotMove)}</b>.`); robotMove = ""; }
-      resetRobotStages(); setStage("what", "active", "Stockfish is scoring every legal move...");
+      setStage("opponent", "done");
+      handoff("checker", "orchestrator", `you played ${san}`);
+      if (robotMove) { setStage("record", "done"); robotMove = ""; }
+      resetRobotStages(); setStage("what", "active");
     } else if (kind === "WHAT") {
-      const m = body.match(/(\w+) on (\w\d) \(best ([+-]\d+) cp, (\d+) neighbors, (\d+) alternatives\)/);
-      resetRobotStages();
-      setStage("what", "done", m ? `The <b>${m[1]} on ${m[2]}</b>. Best line: <b>${score(+m[3])}</b>.` : esc(body));
-      setStage("where", "active", "Choosing the square...");
+      resetRobotStages(); setStage("what", "done"); setStage("where", "active");
+      const m = body.match(/(\w+) on (\w\d)/);
+      if (m) handoff("engine", "orchestrator", `move the ${m[1]} on ${m[2]}`);
     } else if (kind === "WHERE") {
-      const m = body.match(/(\S+) \(([+-]\d+) cp, risk (\d+)\)/);
-      robotMove = m ? m[1] : body;
-      setStage("where", "done", m ? `Play <b>${esc(m[1])}</b>, then split it into physical steps.` : esc(body));
+      const m = body.match(/(\S+) \(/);
+      robotMove = m ? m[1] : body.split(" ")[0];
+      setStage("where", "done");
+      handoff("engine", "orchestrator", `play ${robotMove}`);
     } else if (kind === "HOW") {
       const m = body.match(/\[(\d+)\/(\d+)\] (.*)/);
       if (m) {
         highlight = promptSquares(m[3]);
-        howHead(`${+m[1] > 1 ? "Retry" : "Sent to Dream-1"}, attempt ${m[1]} of ${m[2]}.`);
-        addCommand("send", `${m[1]}/${m[2]}`, m[3]);
-        setStage("how", "active");
-        setStage("check", "", "");
+        handoff("writer", "dream", `${+m[1] > 1 ? `retry ${m[1]}/${m[2]}: ` : ""}${shortPrompt(m[3])}`);
+        flash("writer"); setStage("how", "active"); setStage("check", "");
       }
     } else if (kind === "CHECK") {
-      const miss = (body.match(/missing=\[(.*?)\]/) || [, ""])[1].match(/[a-h][1-8]/g) || [];
-      const extra = (body.match(/extra=\[(.*?)\]/) || [, ""])[1].match(/[a-h][1-8]/g) || [];
-      awaitingCheck = false; fixes++;
-      const verdict = (body.split("]: ")[1] || "").trim();
-      setStage("check", "failed", verdict ? `Not right: <b>${esc(verdict)}</b>. Sending Dream-1 the correction.` :
-        `Not right: ${miss.length ? "expected a piece on <b>" + miss.join(", ") + "</b>" : ""}` +
-        `${miss.length && extra.length ? " and " : ""}${extra.length ? "found one on <b>" + extra.join(", ") + "</b>" : ""}. Asking Dream-1 to fix it.`);
+      awaitingCheck = false;
+      const verdict = (body.split("]: ")[1] || "the board doesn't match").trim();
+      setStage("check", "failed");
+      handoff("checker", "orchestrator", verdict, true);
     } else if (kind === "LOOK") {
-      setStage("check", "active", `Took a picture: ${esc(body)}.`);
+      setStage("check", "active");
     } else if (kind === "HELP") {
-      awaitingCheck = false; rescues++;
-      setStage("check", "failed", "Needs a person to fix the board.");
+      awaitingCheck = false; setStage("check", "failed");
+      handoff("orchestrator", "you", "please fix the board", true);
+    } else if (kind === "HANDOFF") {
+      const m = body.match(/^(.+?) -> (.+?): (.*)$/);
+      if (m) { handoff(m[1], m[2], m[3]); flash(m[1] === "watcher" ? "watcher" : m[2] === "watcher" ? "watcher" : "writer"); }
     }
   }
-  if (e.type === "attempt") {
-    attempts++;
-    howHead(`Done${e.seconds != null ? ` in ${e.seconds}s` : ""}.`);
-    setStage("how", "done");
-    setStage("check", "active", "Comparing the board with the plan...");
-    awaitingCheck = true;
-  }
-  if (e.type === "attempt_result" && !e.landed) setStage("check", "failed", `Not right: it ended up on <b>${esc(e.ended_on || "?")}</b>.`);
-  if (e.type === "help") setStage("check", "failed", `Needs a person: ${esc((e.changes || []).join("; ") || "check the board")}.`);
+  if (e.type === "attempt") { setStage("how", "done"); setStage("check", "active"); awaitingCheck = true; }
+  if (e.type === "attempt_result" && !e.landed) setStage("check", "failed");
+  if (e.type === "help") setStage("check", "failed");
   if (e.type === "game_end") {
     if (robotMove && awaitingCheck) checkPassed();
-    if (e.robot_moves !== undefined) moves = e.robot_moves;
-    if (e.human_rescues !== undefined) rescues = e.human_rescues;
     const text = `Game over: ${e.ending}${e.result ? ", result " + e.result : ""}.`;
     log(text);
     $("banner").textContent = text; $("banner").className = "banner end"; $("banner").hidden = false;
-    if (robotMove) setStage("record", "done", `Recorded <b>${esc(robotMove)}</b>.`);
+    if (robotMove) setStage("record", "done");
   }
 }
 
@@ -608,6 +587,7 @@ function parseFen(fen) {
   return out;
 }
 const colorOf = p => p ? (p === p.toUpperCase() ? "w" : "b") : null;
+// The board shows the game, plus one thing: the move the robot is trying to make right now.
 function drawBoard(st) {
   const pieces = st.fen ? parseFen(st.fen) : {};
   const moving = stage.how.status === "active";
@@ -615,17 +595,16 @@ function drawBoard(st) {
     sq.querySelectorAll(".pc").forEach(p => p.remove());
     const p = pieces[name];
     if (p) { const d = document.createElement("span"); d.className = "pc " + colorOf(p); d.textContent = GLYPH[p.toLowerCase()]; sq.append(d); }
-    sq.classList.toggle("last", !!st.last_move && (st.last_move.slice(0, 2) === name || st.last_move.slice(2, 4) === name));
+    sq.classList.toggle("last", !moving && !!st.last_move && (st.last_move.slice(0, 2) === name || st.last_move.slice(2, 4) === name));
     sq.classList.toggle("from", moving && highlight.from === name);
     sq.classList.toggle("to", moving && highlight.to === name);
     sq.classList.toggle("pick", picked === name);
     sq.classList.toggle("click", askKind === "move");
   }
   $("setuptag").hidden = !st.setup;
-  $("turn").textContent = st.setup ? "" : st.turn ? (st.turn === "white" ? "Your turn" : "Robot's turn") : "";
-  $("checkflag").textContent = st.check ? "Check!" : "";
-  $("lastmove").textContent = st.last_move ? `Last move ${st.last_move}` : "";
-  $("robotmove").textContent = moving && highlight.from ? `Moving ${highlight.from} → ${highlight.to || "tray"}` : "";
+  $("turn").textContent = st.setup ? "" : st.turn === "white" ? "Your turn" : st.turn ? "The robot's turn" : "";
+  $("checkflag").textContent = st.check ? " Check!" : "";
+  $("trying").textContent = moving && highlight.from ? `· moving ${highlight.from} → ${highlight.to || "the tray"}` : "";
 }
 function drawDetected(st, detected) {
   const pieces = st.fen ? parseFen(st.fen) : {};
@@ -633,7 +612,6 @@ function drawDetected(st, detected) {
     sq.innerHTML = ""; const c = detected[name];
     const want = colorOf(pieces[name]);
     if (c) {
-      // The camera only tells colors apart. Where the color matches the game, it's the game's piece; otherwise a pawn shape.
       const d = document.createElement("span"), kind = c === want ? pieces[name].toLowerCase() : "p";
       d.className = "pc " + c + (c === want ? "" : " unknown"); d.textContent = GLYPH[kind]; sq.append(d);
     }
@@ -644,7 +622,6 @@ function drawDetected(st, detected) {
 
 // --- the robot's eyes ---------------------------------------------------------------------------------------
 let camView = "grid", camRole = "top", visionKey = null, liveMode = false, frameAges = {}, camChosen = false;
-// How old a station frame is: they're only saved while Dream-1 runs a move, so between moves the last one stays up.
 function ageText(s) {
   if (s == null) return "";
   if (s < 90) return "live";
@@ -669,7 +646,7 @@ function setupEyes(mode) {
     segment([["station", "Live view"], ["grid", "What it detects"], ["raw", "Last picture"]], camView,
       v => { camView = v; camRole = "top"; camChosen = true; setupEyes(mode); loadCamera(true); });
     $("eyes-sub").textContent = camView === "station" ? "The top camera's last frame, as the station handed it to Dream-1."
-      : "The top camera, one picture at a time: after each robot step, and when you press \u201cI've made my move\u201d.";
+      : "The top camera, one picture at a time: after each robot step, and when you press “I've made my move”.";
     $("detected-h").textContent = "What the top camera detects";
   } else {
     segment([["grid", "What it detects"], ["raw", "Camera"]], camView, v => { camView = v; setupEyes(mode); loadCamera(true); });
@@ -749,11 +726,10 @@ function showCalibration(c) {
   $("cal-start").disabled = c.step === "empty" || c.step === "corners";
   $("calc").hidden = c.step !== "corners";
   cornerMode = c.step === "corners";
+  if (cornerMode) $("expects").open = true;
   if (c.error && !$("cal-msg").textContent) { $("cal-msg").textContent = c.error; $("cal-msg").className = "msg bad"; }
 }
-let calibrating = false;
 async function calibrateStep(step, button) {
-  if (step !== "look") calibrating = true;
   button.disabled = true; const label = button.textContent; button.textContent = "Capturing...";
   const r = await post(`/webcam/${step}`, {});
   button.textContent = label; button.disabled = false;
@@ -761,12 +737,10 @@ async function calibrateStep(step, button) {
   if (!r.ok) { msg.textContent = r.error || "That didn't work."; msg.className = "msg bad"; }
   else if (step === "empty" && r.step === "corners") { msg.textContent = r.error; msg.className = "msg bad"; corners = []; $("cal-clicks").textContent = "0 of 4"; }
   else if (step === "empty") { msg.textContent = "Found the board. Now set up the starting position."; msg.className = "msg ok"; }
-  else if (step === "look") { msg.textContent = "Took a picture."; msg.className = "msg ok"; }
-  else { msg.textContent = "Calibrated. Set up the game's position: the top camera now checks every step and reads your moves."; msg.className = "msg ok"; calibrating = false; }
+  else { msg.textContent = "Calibrated. Set up the game's position: the top camera now checks every step and reads your moves."; msg.className = "msg ok"; }
   showCalibration(r); loadCamera(true); readVision();
 }
 $("cal-empty").onclick = () => calibrateStep("empty", $("cal-empty"));
-// Marking the corners by hand, on the empty-board picture: a1, h1, h8, a8, in the picture's own pixels.
 let cornerMode = false, corners = [];
 $("cal-redo").onclick = () => { corners = []; $("cal-clicks").textContent = "0 of 4"; };
 $("cam").addEventListener("click", async ev => {
@@ -784,42 +758,39 @@ $("cam").addEventListener("click", async ev => {
 });
 $("cal-start").onclick = () => calibrateStep("start", $("cal-start"));
 
-// --- the robot's voice (LiveKit) -----------------------------------------------------------------------------
-// Each line the robot says arrives as a "voice" event. With Listen on, the page joins the robot's LiveKit room as a
-// listener, plays it, and the bars follow the sound; without it, they move for about as long as the line takes to say.
-let speakingUntil = 0, voiceRoom = null, voiceLevel = 0;
+// --- the robot's voice (LiveKit), on its avatar ------------------------------------------------------------------
+// Each line the robot says arrives as a "voice" event and shows under its name. With Audio on, the page joins the
+// robot's LiveKit room as a listener and plays it, and the rings follow the sound; with it off, they move for about
+// as long as the line takes to say. Browsers only play sound after a click, so the switch is that click.
+let speakingUntil = 0, voiceRoom = null, voiceLevel = 0, audioCtx = null;
 function robotSaid(text) {
-  $("voiceline").textContent = `\u201c${text}\u201d`; $("voiceline").className = "voiceline";
-
+  $("voiceline").textContent = `“${text}”`;
   if (!voiceRoom) speakingUntil = Date.now() + Math.max(1200, text.split(/\s+/).length * 380);
 }
 function drawVoice() {
-  const card = $("voicecard"), bars = card.querySelectorAll(".wave i");
+  const av = $("robotavatar"), rings = av.querySelectorAll(".ring");
   const live = voiceRoom && voiceLevel > 0.02, estimated = !voiceRoom && Date.now() < speakingUntil;
-  card.classList.toggle("speaking", live || estimated); card.classList.toggle("estimated", estimated);
-  if (voiceRoom) bars.forEach((b, i) => { b.style.height = `${6 + Math.min(1, voiceLevel * (1.4 + (i % 3) * .5)) * 24}px`; });
-  else bars.forEach(b => { b.style.height = ""; });
-  $("voicestate").textContent = live || estimated ? "Speaking" : voiceRoom ? "Listening" : "Silent";
-  $("voicestate").className = "status " + (live || estimated ? "ok" : "wait");
+  av.classList.toggle("speaking", !!(live || estimated)); av.classList.toggle("estimated", estimated);
+  rings.forEach((r, i) => { r.style.transform = voiceRoom ? `scale(${1 + Math.min(1, voiceLevel * (1.2 + i * .6)) * .18})` : ""; });
   requestAnimationFrame(drawVoice);
 }
 requestAnimationFrame(drawVoice);
 function loadScript(src) {
   return new Promise((ok, fail) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = fail; document.head.append(s); });
 }
-async function listen() {
-  const b = $("listen");
-  if (voiceRoom) { await voiceRoom.disconnect(); voiceRoom = null; voiceLevel = 0; b.textContent = "Listen"; return; }
-  b.disabled = true; b.textContent = "Connecting...";
+async function audioOn() {
+  // Made inside the click, so the browser lets it play.
+  audioCtx = audioCtx || new AudioContext(); audioCtx.resume().catch(() => {});
+  $("audiolabel").textContent = "Connecting...";
   try {
     const pass = await (await fetch("/voice/token", { cache: "no-store" })).json();
     if (!window.LivekitClient) await loadScript("https://cdn.jsdelivr.net/npm/livekit-client@2.5.7/dist/livekit-client.umd.min.js");
     const LK = window.LivekitClient, room = new LK.Room();
     room.on(LK.RoomEvent.TrackSubscribed, track => {
       if (track.kind !== "audio") return;
-      const el = track.attach(); el.hidden = true; document.body.append(el);
-      const ctx = new AudioContext(), analyser = ctx.createAnalyser(); analyser.fftSize = 256;
-      ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack])).connect(analyser);
+      const el = track.attach(); el.hidden = true; document.body.append(el); el.play().catch(() => {});
+      const analyser = audioCtx.createAnalyser(); analyser.fftSize = 256;
+      audioCtx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack])).connect(analyser);
       const data = new Uint8Array(analyser.fftSize);
       (function level() {
         if (!voiceRoom) return;
@@ -830,22 +801,28 @@ async function listen() {
       })();
     });
     await room.connect(pass.url, pass.token, { autoSubscribe: true });
-    voiceRoom = room; b.textContent = "Stop listening";
+    voiceRoom = room; $("audiolabel").textContent = "Audio on";
   } catch (err) {
+    $("audio").checked = false; $("audiolabel").textContent = "Audio";
     $("voiceline").textContent = "Couldn't join the robot's voice room. Is the app running with --voice livekit?";
-    $("voiceline").className = "voiceline none"; b.textContent = "Listen";
   }
-  b.disabled = false;
 }
-$("listen").onclick = listen;
+async function audioOff() {
+  if (voiceRoom) await voiceRoom.disconnect();
+  voiceRoom = null; voiceLevel = 0; $("audiolabel").textContent = "Audio";
+}
+$("audio").onchange = () => $("audio").checked ? audioOn() : audioOff();
+function showVoice(mode) {
+  // livekit: real audio behind the switch; print: lines on the page, no audio; none: the robot is silent.
+  $("voicecredit").textContent = mode === "livekit" ? "Voice powered by LiveKit" : mode === "print" ? "Voice powered by LiveKit · text only here" : "Voice off";
+  $("audio").disabled = mode !== "livekit";
+  $("audiowrap").title = mode === "livekit" ? "Hear the robot" : "Start the app with --voice livekit to hear the robot";
+}
 
-// --- the robot's brain --------------------------------------------------------------------------------------
-// "dream-1-ft:0b7a43f9-xiangwen-chess" reads as "xiangwen-chess · fine-tune"; the full ID stays in the tooltip.
+// --- the robot's brain and the services it needs ------------------------------------------------------------
 const modelName = id => !id ? "" : id.startsWith("dream-1-ft:") ? id.replace(/^dream-1-ft:[0-9a-f]+-/, "") + " · fine-tune"
   : id.replace(/^dreamlabs\//, "");
 const mins = s => s == null ? "" : s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s`;
-// The model has to be running on DreamAPI before the arms can move. The app starts it at launch; this shows how
-// that's going, so a slow first move never looks like a broken robot.
 function showWarm(w, waitingFirst, model) {
   const box = $("warm"), note = $("asknote");
   let title = "", detail = "", cls = "", time = "";
@@ -856,9 +833,6 @@ function showWarm(w, waitingFirst, model) {
   } else if (waitingFirst) {
     title = "Waiting for Dream-1's first answer";
     detail = "The robot's move has started. The arms stay still until Dream-1 answers.";
-  } else if (w && w.state === "ready") {
-    title = "Ready on DreamAPI"; cls = "ready"; time = w.waited_s ? `started in ${mins(w.waited_s)}` : "";
-    detail = `${model} is running and answering, so the arms move as soon as the agent sends a step.`;
   } else if (w && w.state === "error") {
     title = "Couldn't start the model"; cls = "error"; detail = w.message || "";
   }
@@ -869,13 +843,21 @@ function showWarm(w, waitingFirst, model) {
   note.textContent = busy ? (w && w.state === "warming" ? `Dream-1 is still starting up (${mins(w.waited_s)} so far). The robot's first move waits for it.`
     : "Dream-1 is about to answer: the arms will move shortly.") : "";
 }
+function showServices(list) {
+  const box = $("svcs"); box.innerHTML = "";
+  for (const s of list || []) {
+    const d = document.createElement("div"); d.className = "svc " + (s.state || "off"); d.title = `${s.name}: ${s.detail}`;
+    d.innerHTML = `<i></i><b>${esc(s.name)}</b><span>${esc(s.detail)}</span>`; box.append(d);
+  }
+  markSlots(list);
+}
 async function readBrain() {
   try {
     const b = await (await fetch("/brain", { cache: "no-store" })).json();
-    $("brainmodel").textContent = b.simulated ? "simulated for rehearsal" : modelName(b.model);
-    $("model").textContent = b.simulated ? b.model : modelName(b.model); $("model").title = b.model;
+    $("b-model").textContent = b.simulated ? b.model : modelName(b.model); $("b-model").title = b.model;
+    showServices(b.services);
     const st = $("brainstate"), moving = b.state === "moving";
-    let label = moving ? "Moving the arms" : "Idle";
+    let label = moving ? "Dream-1 is moving the arms" : "Idle";
     const w = b.warm, s0 = b.station || {};
     const waitingFirst = s0.state === "running" && !s0.chunks;
     if (b.station) {
@@ -885,17 +867,15 @@ async function readBrain() {
     }
     if (w && w.state === "warming" && !moving) label = "Warming up";
     showWarm(w, waitingFirst, modelName(b.model));
-    st.textContent = label; st.className = "status state " + (moving || (b.station && b.station.state === "running") ? "moving" : (b.station && !b.station.reachable ? "bad" : "wait"));
-    const instr = $("instr");
-    if (b.prompt) { instr.textContent = `“${b.prompt}”`; instr.className = "text"; }
-    $("b-arm").textContent = b.arm ? b.arm[0].toUpperCase() + b.arm.slice(1) : "–";
-    $("b-attempt").textContent = b.attempt || "–";
-    $("b-secs").textContent = b.last_seconds != null ? `${b.last_seconds}s` : "–";
+    st.textContent = label; st.className = "status " + (moving || s0.state === "running" ? "moving" : (b.station && !b.station.reachable ? "bad" : "wait"));
+    $("b-secs").textContent = b.last_seconds != null ? `${b.last_seconds} s` : "–";
+    if (b.last_seconds != null && b.calls !== lastCalls) { lastCalls = b.calls; lastRunAt = Date.now(); }
     const s = b.station || {};
     document.querySelectorAll("[data-live]").forEach(el => el.hidden = b.simulated);
     $("b-rtt").textContent = s.p50_ms != null ? `${Math.round(s.p50_ms)} ms` : (s.last_rtt_ms != null ? `${Math.round(s.last_rtt_ms)} ms` : "–");
     $("b-infer").textContent = s.serve_infer_ms != null ? `${Math.round(s.serve_infer_ms)} ms` : "–";
     $("b-chunks").textContent = s.chunks != null ? s.chunks : "–";
+    $("b-when").textContent = lastRunAt ? new Date(lastRunAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "–";
     const h = b.hand;
     $("b-hand").textContent = !h ? "–" : !h.watching ? `Not watching: ${h.problem}` : !h.arm ? "Watching, waiting for a move"
       : `${h.arm[0].toUpperCase() + h.arm.slice(1)} hand ${h.z < 0.10 ? "low, at" : "over"} ${h.square || "the edge of the board"} · ` +
@@ -903,6 +883,7 @@ async function readBrain() {
   } catch (err) { /* try again on the next tick */ }
   setTimeout(readBrain, 1000);
 }
+let lastCalls = null, lastRunAt = null;
 
 // --- questions ----------------------------------------------------------------------------------------------
 let askId = null, askKind = null, picked = null;
@@ -933,7 +914,6 @@ function input(placeholder, submitLabel) {
   const b = document.createElement("button"); b.className = "btn primary"; b.type = "button"; b.textContent = submitLabel; b.onclick = () => answer(i.value.trim());
   return [i, b];
 }
-// The game asks in a terminal's words ("press Enter", "type yes"); say it the page's way, with buttons that say what they do.
 function friendly(p) {
   const t = p.prompt.replace(/\s+/g, " ").trim();
   if (p.kind === "continue" && /set up/i.test(t)) return ["Set up the real board to match the board above, with brown on the robot's side.", "Click the button once every piece is in place."];
@@ -1002,12 +982,14 @@ $("theme").onclick = () => {
   showTheme();
 };
 showTheme();
-// Setting up from the robot's side is where pieces land on the wrong file (a2 for b2), so let the board turn around.
+// Seen from the robot's side, the board turns around and the players swap places.
 function showSide(side) {
   const robot = side === "robot";
   $("board").classList.toggle("flipped", robot); $("seen").classList.toggle("flipped", robot);
-  $("far-side").textContent = robot ? "You · White" : "Robot · Brown";
-  $("near-side").textContent = robot ? "Robot · Brown (the arms)" : "You · White";
+  const far = $("far-player"), near = $("near-player");
+  const robotBox = far.contains($("robotavatar")) ? far : near, humanBox = robotBox === far ? near : far;
+  const robotBits = [...robotBox.childNodes], humanBits = [...humanBox.childNodes];
+  (robot ? near : far).replaceChildren(...robotBits); (robot ? far : near).replaceChildren(...humanBits);
   document.querySelectorAll("#sideseg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.side === side)));
   try { localStorage.setItem("dream-chess-side", side); } catch (e) {}
 }
@@ -1029,7 +1011,7 @@ $("newgame").onclick = async () => {
 };
 $("stoparms").onclick = async () => { const r = await post("/stop"); log(r.message || "Stop sent."); };
 
-let bootId = null, eyesSetUp = null, liveTick = 0;
+let bootId = null, eyesSetUp = null, liveTick = 0, voiceShown = null;
 async function tick() {
   try {
     const st = await (await fetch(`/state?since=${since}`, { cache: "no-store" })).json();
@@ -1041,31 +1023,26 @@ async function tick() {
     for (const e of st.events) handle(e);
     const sim = st.mode === "simulation";
     const mode = sim ? "sim" : st.webcam ? "webcam" : "station";
-    // On the robot, open on Dream-1's view: the station's top camera, live during every move. Camera checks are
-    // optional, so the panel never waits on them; switch to "What it detects" once they're on.
     if (eyesSetUp !== mode) {
       if (mode === "webcam") camView = st.webcam && st.webcam.calibrated ? "grid" : "station";
       eyesSetUp = mode; setupEyes(mode); loadCamera(true); readVision();
     }
     if (mode === "webcam" && camView !== "station" && !(st.webcam && st.webcam.picture_age_s != null) && !camChosen) {
-      camView = "station"; setupEyes(mode); loadCamera(true);  // no picture to show yet: show the live one
+      camView = "station"; setupEyes(mode); loadCamera(true);
     }
     $("mode").textContent = st.public ? "Public demo" : sim ? "Simulation" : "Live robot"; $("mode").className = "chip " + (sim ? "sim" : "live");
     $("stoparms").hidden = sim;
-    if (st.public && !$("publicnote")) {  // the public demo site
+    if (st.public && !$("publicnote")) {
       const note = document.createElement("div"); note.id = "publicnote"; note.className = "banner end";
       note.textContent = "Live demo: a simulated robot plays a random opponent through the real agents, Stockfish, "
         + "prompts and checks. The real YAM arms play at the station, driven by Dream-1.";
       $("banner").after(note);
-      $("mode").textContent = "Public demo";
     }
-    $("voicecard").hidden = !st.voice || st.voice === "none";
-    $("listen").hidden = st.voice !== "livekit";
+    if (voiceShown !== st.voice) { voiceShown = st.voice; showVoice(st.voice); }
     if (!restartArmed && !$("newgame").disabled) $("newgame").textContent = st.running ? "Restart game" : "New game";
-    $("s-moves").textContent = moves; $("s-attempts").textContent = attempts; $("s-fixes").textContent = fixes; $("s-help").textContent = rescues;
-    if (st.pending && st.pending.kind === "move") setStage("opponent", "active", "Waiting for your move.");
+    if (st.pending && st.pending.kind === "move") setStage("opponent", "active");
     showQuestion(st.pending, st);
-    drawBoard(st); lightLoop();
+    drawBoard(st); lightChain();
     if (mode === "webcam") { if (liveTick++ % 4 === 0) { readVision(); loadCamera(true); } }
     else if (!sim) { if (liveTick++ % 4 === 0) { readVision().then(() => loadCamera(true)); } }
     else loadCamera(false);

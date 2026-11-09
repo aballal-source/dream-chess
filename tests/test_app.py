@@ -477,3 +477,31 @@ def test_visitors_can_watch_and_restart_but_nothing_else(tmp_path):
     finally:
         session.shutdown()
         server.shutdown()
+
+
+# --- The landing page's services panel and the stats page ---
+
+def test_the_services_panel_lists_every_part_and_marks_the_agent_slots(tmp_path):
+    session = app.Session(args(tmp_path, voice="print"))
+    services = {s["name"]: s for s in session.brain()["services"]}
+    assert {"Dream-1 · DreamAPI", "Chess engine", "Watcher agent", "Prompt writer agent", "Top camera checker",
+            "Voice · LiveKit"} <= set(services)
+    assert services["Watcher agent"]["state"] == "placeholder"
+    assert services["Voice · LiveKit"]["detail"] == "Text only, no audio"
+
+
+def test_the_stats_page_counts_the_game_and_lists_every_instruction(tmp_path):
+    session = app.Session(args(tmp_path, fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                               auto_opponent=True, max_plies=4, sim_success=0.5))
+    session.start()
+    wait_for(session, lambda s: not s["running"], timeout=60)
+    stats = session.stats()
+    assert stats["robot_moves"] == 2
+    assert stats["dream_calls"] == len([p for p in stats["prompts"] if p["kind"] != "supervisor"])
+    assert stats["prompts"] and stats["prompts"][0]["attempt"] == "1/6"
+    server, port = serve(session)
+    try:
+        assert b"Stats" in request(port, "/stats", f"localhost:{port}").read()
+        assert json.loads(request(port, "/stats.json", f"localhost:{port}").read())["robot_moves"] == 2
+    finally:
+        server.shutdown()
