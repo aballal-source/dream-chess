@@ -643,7 +643,7 @@ function drawDetected(st, detected) {
 }
 
 // --- the robot's eyes ---------------------------------------------------------------------------------------
-let camView = "grid", camRole = "top", visionKey = null, liveMode = false, frameAges = {};
+let camView = "grid", camRole = "top", visionKey = null, liveMode = false, frameAges = {}, camChosen = false;
 // How old a station frame is: they're only saved while Dream-1 runs a move, so between moves the last one stays up.
 function ageText(s) {
   if (s == null) return "";
@@ -666,8 +666,8 @@ function setupEyes(mode) {
     $("eyes-sub").textContent = "The frames the station hands Dream-1, refreshed during every move.";
     $("detected-h").textContent = "The board, as confirmed";
   } else if (mode === "webcam") {
-    segment([["grid", "What it detects"], ["raw", "Picture"], ["station", "Dream-1's view"]], camView,
-      v => { camView = v; camRole = "top"; setupEyes(mode); loadCamera(true); });
+    segment([["station", "Live view"], ["grid", "What it detects"], ["raw", "Last picture"]], camView,
+      v => { camView = v; camRole = "top"; camChosen = true; setupEyes(mode); loadCamera(true); });
     $("eyes-sub").textContent = camView === "station" ? "The top camera's last frame, as the station handed it to Dream-1."
       : "The top camera, one picture at a time: after each robot step, and when you press \u201cI've made my move\u201d.";
     $("detected-h").textContent = "What the top camera detects";
@@ -1041,7 +1041,15 @@ async function tick() {
     for (const e of st.events) handle(e);
     const sim = st.mode === "simulation";
     const mode = sim ? "sim" : st.webcam ? "webcam" : "station";
-    if (eyesSetUp !== mode) { eyesSetUp = mode; setupEyes(mode); loadCamera(true); readVision(); }
+    // On the robot, open on Dream-1's view: the station's top camera, live during every move. Camera checks are
+    // optional, so the panel never waits on them; switch to "What it detects" once they're on.
+    if (eyesSetUp !== mode) {
+      if (mode === "webcam") camView = st.webcam && st.webcam.calibrated ? "grid" : "station";
+      eyesSetUp = mode; setupEyes(mode); loadCamera(true); readVision();
+    }
+    if (mode === "webcam" && camView !== "station" && !(st.webcam && st.webcam.picture_age_s != null) && !camChosen) {
+      camView = "station"; setupEyes(mode); loadCamera(true);  // no picture to show yet: show the live one
+    }
     $("mode").textContent = st.public ? "Public demo" : sim ? "Simulation" : "Live robot"; $("mode").className = "chip " + (sim ? "sim" : "live");
     $("stoparms").hidden = sim;
     if (st.public && !$("publicnote")) {  // the public demo site
